@@ -6,7 +6,9 @@ using Hypernex.CCK.Unity.Internals;
 using Hypernex.Networking.Messages;
 using Hypernex.Sandboxing;
 using Hypernex.Tools;
+// #if FINAL_IK
 using RootMotion.FinalIK;
+// #endif
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
@@ -39,6 +41,7 @@ namespace Hypernex.Game.Avatar
         internal AudioSource audioSource;
         internal List<Sandbox> localAvatarSandboxes = new();
         protected VRIK vrik;
+        protected IKSystem iksystem;
         internal Quaternion headRef;
 
         protected void OnCreate(CCK.Unity.Avatar a, int layer)
@@ -454,11 +457,13 @@ namespace Hypernex.Game.Avatar
         {
             if (leftLowerArm == null || rightLowerArm == null || leftHand == null || rightHand == null)
                 return;
+#if FINAL_IK
             TwistRelaxer twistRelaxer = Avatar.gameObject.AddComponent<TwistRelaxer>();
             twistRelaxer.ik = vrik;
             TwistSolver leftSolver = new TwistSolver { transform = leftLowerArm, children = new []{leftHand} };
             TwistSolver rightSolver = new TwistSolver { transform = rightLowerArm, children = new []{rightHand} };
             twistRelaxer.twistSolvers = new[] { leftSolver, rightSolver };
+#endif
         }
         
         internal void FixedUpdate() => localAvatarSandboxes.ForEach(x => x.Runtime.FixedUpdate());

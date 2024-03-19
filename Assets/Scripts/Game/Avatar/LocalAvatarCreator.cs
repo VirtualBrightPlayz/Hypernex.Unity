@@ -7,7 +7,9 @@ using Hypernex.Game.Networking;
 using Hypernex.Sandboxing.SandboxedTypes;
 using Hypernex.Tools;
 using Hypernex.UI.Templates;
+#if FINAL_IK
 using RootMotion.FinalIK;
+#endif
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using VRCFaceTracking.Core.Params.Data;
@@ -17,6 +19,7 @@ namespace Hypernex.Game.Avatar
 {
     public class LocalAvatarCreator : AvatarCreator
     {
+#if FINAL_IK
         private VRIKCalibrator.Settings vrikSettings = new()
         {
             scaleMlp = 0.9f,
@@ -24,6 +27,7 @@ namespace Hypernex.Game.Avatar
             pelvisPositionWeight = 0,
             pelvisRotationWeight = 0
         };
+#endif
         private List<AvatarNearClip> avatarNearClips = new();
         private FingerCalibration fingerCalibration;
 
@@ -53,8 +57,10 @@ namespace Hypernex.Game.Avatar
                 }
             avatarNearClips.ForEach(x => x.CreateShadows());
             Transform head = GetBoneFromHumanoid(HumanBodyBones.Head);
+#if FINAL_IK
             if(head != null)
                 vrikSettings.headOffset = head.position - HeadAlign.transform.position;
+#endif
             a.gameObject.name = "avatar";
             a.transform.SetParent(localPlayer.transform);
             if(isVR)
@@ -64,7 +70,13 @@ namespace Hypernex.Game.Avatar
             a.transform.localScale = Vector3.one;
             if (isVR)
             {
+#if FINAL_IK
                 vrik = Avatar.gameObject.AddComponent<VRIK>();
+#else
+                iksystem = Avatar.gameObject.AddComponent<IKSystem>();
+                iksystem.humanoid = Avatar.GetComponent<Animator>();
+                iksystem.Init();
+#endif
                 for (int i = 0; i < LocalPlayer.Instance.Camera.transform.childCount; i++)
                 {
                     Transform child = LocalPlayer.Instance.Camera.transform.GetChild(i);
@@ -183,6 +195,7 @@ namespace Hypernex.Game.Avatar
                     break;
                 }
             }
+#if FINAL_IK
             if (vrik != null && vrik.solver.initiated && (!XRTracker.CanFBT || MainAnimator.avatar == null) && !Calibrated)
             {
                 VRIKCalibrator.CalibrationData calibrationData = VRIKCalibrator.Calibrate(vrik, vrikSettings,
@@ -259,6 +272,44 @@ namespace Hypernex.Game.Avatar
             }
             if(vrik != null)
                 fingerCalibration?.Update();
+#else
+            if (iksystem != null && iksystem.isActiveAndEnabled && (!XRTracker.CanFBT || MainAnimator.avatar == null) && !Calibrated)
+            {
+                iksystem.leftHandData.ik.Target = LeftHandReference;
+                iksystem.rightHandData.ik.Target = RightHandReference;
+                iksystem.leftFootData.ik.enabled = false;
+                iksystem.rightFootData.ik.enabled = false;
+                LocalPlayerSyncController.calibratedFBT = false;
+                LocalPlayerSyncController.CalibrationData = string.Empty;
+                // vrik.solver.locomotion.stepThreshold = 0.01f;
+                // vrik.solver.locomotion.angleThreshold = 20;
+                // vrik.solver.plantFeet = false;
+                SetupAnimators();
+                Calibrated = true;
+            }
+            else if (iksystem != null && Calibrated)
+            {
+                iksystem.footIk = !isMoving && !XRTracker.CanFBT;
+                if (!XRTracker.CanFBT)
+                {
+                    float scale = LocalPlayer.Instance.transform.localScale.y;
+                    float height = LocalPlayer.Instance.CharacterController.height;
+                    // vrik.solver.locomotion.footDistance = 0.1f * scale * height;
+                    // vrik.solver.locomotion.stepThreshold = 0.2f * scale * height;
+                }
+                MainAnimator.runtimeAnimatorController = animatorController;
+                // MotionSpeed (4)
+                MainAnimator.SetFloat("MotionSpeed", 1f);
+                MainAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            }
+            else if (iksystem == null)
+            {
+                MainAnimator.runtimeAnimatorController = animatorController;
+                // MotionSpeed (4)
+                MainAnimator.SetFloat("MotionSpeed", 1f);
+                MainAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+            }
+#endif
         }
 
         internal void LateUpdate(bool isVR, Transform cameraTransform, bool lockCamera)
