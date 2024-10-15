@@ -85,12 +85,14 @@ namespace Hypernex.Game.Avatar
                     Object.Destroy(child.gameObject);
                 }
                 vrik = AddVRIK(Avatar.gameObject);
+#if FINAL_IK
                 if (!XRTracker.CanFBT)
                 {
                     RelaxWrists(GetBoneFromHumanoid(HumanBodyBones.LeftLowerArm),
                         GetBoneFromHumanoid(HumanBodyBones.RightLowerArm), GetBoneFromHumanoid(HumanBodyBones.LeftHand),
                         GetBoneFromHumanoid(HumanBodyBones.RightHand));
                 }
+#endif
             }
             else
             {
@@ -210,6 +212,7 @@ namespace Hypernex.Game.Avatar
                     break;
                 }
             }
+#if FINAL_IK
             if (vrik != null && vrik.solver.initiated && (!XRTracker.CanFBT || MainAnimator.avatar == null) && !Calibrated)
             {
                 LeftHandReference.ClearChildren(true);
@@ -270,6 +273,7 @@ namespace Hypernex.Game.Avatar
                 MainAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             }
             else if (vrik == null)
+#endif
             {
                 MainAnimator.runtimeAnimatorController = animatorController;
                 MainAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;

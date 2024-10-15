@@ -296,7 +296,7 @@ namespace Hypernex.Game
                 avatarMeta = am;
                 avatar?.Dispose();
                 CurrentAvatarDisplay.SizeAvatar(1f);
-                avatar = new LocalAvatarCreator(this, a, IsVR, am);
+                avatar = new LocalAvatarCreator(this, a, IsVR || true, am);
                 avatarFile = file;
                 // Why this doesn't clear old transforms? I don't know.
                 SavedTransforms.Clear();

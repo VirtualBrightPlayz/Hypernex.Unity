@@ -10,7 +10,9 @@ using Hypernex.Networking.Messages.Data;
 using Hypernex.Tools;
 using Hypernex.UIActions;
 using HypernexSharp.APIObjects;
+#if FINAL_IK
 using RootMotion.FinalIK;
+#endif
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
@@ -72,6 +74,7 @@ namespace Hypernex.Game.Avatar
 
         internal void DestroyIK(bool vr)
         {
+#if FINAL_IK
             VRIKRootController rootController = Avatar.GetComponent<VRIKRootController>();
             if(rootController != null)
                 Object.DestroyImmediate(rootController);
@@ -82,6 +85,7 @@ namespace Hypernex.Game.Avatar
             AlignAvatar(false);
             if(vr)
                 Calibrated = false;
+#endif
         }
 
         private void StartVRIK(NetPlayer np)
@@ -109,6 +113,7 @@ namespace Hypernex.Game.Avatar
             }
         }
 
+#if FINAL_IK
         internal void CalibrateNetAvatar(bool fbt, VRIKCalibrator.CalibrationData calibrationData)
         {
             if (vrik == null)
@@ -168,6 +173,7 @@ namespace Hypernex.Game.Avatar
             vrik.solver.leftLeg.target.SetPositionAndRotation(leftFootTarget.position, leftFootTarget.rotation);
             vrik.solver.rightLeg.target.SetPositionAndRotation(rightFootTarget.position, rightFootTarget.rotation);
         }
+#endif
 
         internal void LateUpdate(Transform referenceHead)
         {

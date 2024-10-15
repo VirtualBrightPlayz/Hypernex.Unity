@@ -7,7 +7,9 @@ using Hypernex.Networking.Messages;
 using Hypernex.Sandboxing;
 using Hypernex.Tools;
 using HypernexSharp.APIObjects;
+#if FINAL_IK
 using RootMotion.FinalIK;
+#endif
 using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
@@ -32,13 +34,15 @@ namespace Hypernex.Game.Avatar
         public bool Calibrated { get; protected set; }
 
         internal List<WeightedObjectUpdate> DefaultWeights;
-        
+
+#if FINAL_IK
         private VRIKCalibrator.Settings vrikSettings = new()
         {
             handOffset = new Vector3(0, 0.01f, -0.1f),
             pelvisPositionWeight = 0f,
             pelvisRotationWeight = 0f
         };
+#endif
         
         private Dictionary<string, Transform> cachedTransforms = new();
         private Dictionary<Transform, SkinnedMeshRenderer> cachedSkinnedMeshRenderers = new();
@@ -88,7 +92,11 @@ namespace Hypernex.Game.Avatar
         internal OVRLipSyncContext lipSyncContext;
         internal AudioSource audioSource;
         internal List<Sandbox> localAvatarSandboxes = new();
+#if FINAL_IK
         protected VRIK vrik;
+#else
+        protected IKSystem2 vrik;
+#endif
         internal RotationOffsetDriver headRotator;
 
         protected void OnCreate(CCK.Unity.Avatar a, int layer, AllowedAvatarComponent allowedAvatarComponent, AvatarMeta meta)
@@ -117,8 +125,10 @@ namespace Hypernex.Game.Avatar
             Transform head = MainAnimator.GetBoneTransform(HumanBodyBones.Head);
             if(head == null) return;
             headRotator = new RotationOffsetDriver(head, a.transform);
+#if FINAL_IK
             vrikSettings.headOffset = head.position - HeadAlign.transform.position;
             vrikSettings.scaleMlp = a.transform.localScale.y;
+#endif
         }
 
         protected void DriveCamera(Transform cam)
@@ -172,6 +182,40 @@ namespace Hypernex.Game.Avatar
             Avatar.transform.localRotation = Quaternion.identity;
         }
 
+        protected IKSystem2 AddVRIK(GameObject avatar)
+        {
+            /*Transform leftHand = GetBoneFromHumanoid(HumanBodyBones.LeftHand);
+            Transform rightHand = GetBoneFromHumanoid(HumanBodyBones.RightHand);
+            Transform leftHandTemp = new GameObject("templefthandalign_" + Guid.NewGuid()).transform;
+            Transform rightHandTemp = new GameObject("temprighthandalign_" + Guid.NewGuid()).transform;
+            leftHandTemp.SetParent(leftHand);
+            leftHandTemp.localPosition = Vector3.zero;
+            leftHandTemp.localRotation = Quaternion.identity;
+            rightHandTemp.SetParent(rightHand);
+            rightHandTemp.localPosition = Vector3.zero;
+            rightHandTemp.localRotation = Quaternion.identity;
+            leftHandRot = leftHandTemp.rotation;
+            rightHandRot = rightHandTemp.rotation;
+            Object.Destroy(leftHandTemp.gameObject);
+            Object.Destroy(rightHandTemp.gameObject);*/
+            IKSystem2 v = avatar.AddComponent<IKSystem2>();
+            v.humanoid = MainAnimator;
+            v.minStepHeight = 0.1f;
+            v.minStepDistance = 0.1f;
+            v.footMoveSpeed = 5f;
+            v.timeoutTime = 0.25f;
+            v.footAnimCurve = new AnimationCurve();
+            v.footAnimCurve.AddKey(0f, 0f);
+            v.footAnimCurve.AddKey(0.5f, 1f);
+            v.footAnimCurve.AddKey(1f, 0f);
+            v.Init();
+            v.maxStepDistance = v.footDistance;
+            v.handIk = false;
+            v.hipIk = false;
+            return v;
+        }
+
+#if FINAL_IK
         private void SetCalibrationMeta()
         {
             vrik.solver.locomotion.stepThreshold = 0.01f;
@@ -248,6 +292,7 @@ namespace Hypernex.Game.Avatar
             }
             vrik.solver.locomotion.weight = isMoving || fbt ? 0f : 1f;
         }
+#endif
         
         // Here's an idea Unity.. EXPOSE THE PARAMETERS??
         private List<AnimatorControllerParameter> GetAllParameters(AnimatorControllerPlayable animatorControllerPlayable)
@@ -772,7 +817,8 @@ namespace Hypernex.Game.Avatar
             currentBlendshapes[indexToInsert] = blendshapeDescriptor.BlendshapeIndex;
             morphTarget.visemeToBlendTargets = currentBlendshapes;
         }
-        
+
+#if FINAL_IK
         protected void RelaxWrists(Transform leftLowerArm, Transform rightLowerArm, Transform leftHand,
             Transform rightHand)
         {
@@ -784,6 +830,7 @@ namespace Hypernex.Game.Avatar
             TwistSolver rightSolver = new TwistSolver { transform = rightLowerArm, children = new []{rightHand} };
             twistRelaxer.twistSolvers = new[] { leftSolver, rightSolver };
         }
+#endif
         
         public Transform GetTargetChild(Transform tracker)
         {

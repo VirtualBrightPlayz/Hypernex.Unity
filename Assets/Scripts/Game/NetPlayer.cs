@@ -344,10 +344,14 @@ namespace Hypernex.Game
                     {
                         lastCalibrationData =
                             JsonUtility.FromJson<VRIKCalibrator.CalibrationData>(lastPlayerUpdate.VRIKJson);
+#if FINAL_IK
                         Avatar.CalibrateNetAvatar(lastPlayerUpdate.IsFBT, lastCalibrationData);
+#endif
                     }
                     Avatar.Update();
+#if FINAL_IK
                     Avatar.Update(lastPlayerUpdate.IsFBT);
+#endif
                     if (Avatar.Calibrated)
                         CalibratedAvatarId = AvatarId;
                 }
