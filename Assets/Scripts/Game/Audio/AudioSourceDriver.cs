@@ -49,14 +49,6 @@ namespace Hypernex.Game.Audio
             buffer.AddQueue(pcm, channels, frequency);
         }
 
-        public static void InsertQueue(AudioSource audioSource, float[] pcm, int channels, int frequency, int index)
-        {
-            var buffer = audioSource.GetComponent<BufferAudioSource>();
-            if (buffer == null)
-                buffer = audioSource.gameObject.AddComponent<BufferAudioSource>();
-            buffer.InsertQueue(pcm, channels, frequency, index);
-        }
-
         public static void AddQueueLater(AudioSource audioSource, float[] pcm, int channels, int frequency, float delay)
         {
             CoroutineRunner.Instance.Run(AddQueueLaterInternal(audioSource, pcm, channels, frequency, delay));
