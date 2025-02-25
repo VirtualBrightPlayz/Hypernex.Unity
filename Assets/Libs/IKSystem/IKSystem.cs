@@ -11,6 +11,7 @@ public class IKSystem : MonoBehaviour
         Contact,
         FollowThru,
         ThruApex,
+        Max,
     }
 
     [Serializable]
@@ -68,6 +69,7 @@ public class IKSystem : MonoBehaviour
     public float flipDist => flipFlop ? 1f : 1f;
 
     public Vector3 hipsPos;
+    public Vector3 lastVel;
     public float timer;
     public float velTimer;
     public float leftTimer;
@@ -104,98 +106,10 @@ public class IKSystem : MonoBehaviour
         }
 
         Vector3 vel = hips.position - hipsPos;
-#if false
-        bool found = false;
-        if (leftFootData.target && leftFootData.ik)
-        {
-            var scl = humanoid.transform.right + humanoid.transform.forward;
-            var footPos = Vector3.Scale(leftFootData.target.position, scl);
-            var otherFootPos = Vector3.Scale(rightFootData.target.position, scl);
-            var hipsPos = Vector3.Scale(hips.position, scl);
-            var dir = hipsPos - footPos;
-            var otherDir = hipsPos - otherFootPos;
-            float amount = 1f;
-            // if (Vector3.Dot(dir, humanoid.transform.right) < 0f)
-            //     amount = 2f;
-            if (leftFootData.ik.ReachAmountSqr >= Mathf.Pow(reachDistance * leftFootData.ik.CompleteLength, 2f) /*&& timer <= 0f*/ && flipFlop)
-            // if (leftFootData.ik.IsOutOfReach && /*timer <= 0f &&*/ flipFlop)
-            {
-                found = true;
-                leftTimer = 0.1f;
-                timer = 0.1f;
-                leftFootPos = leftFootData.target.position + dir.normalized * (stepDistance * amount * leftFootData.ik.CompleteLength * velCurve.Evaluate(velTimer));
-                flipFlop = !flipFlop;
-            }
-            leftFootData.target.position = Vector3.Lerp(leftFootData.target.position, leftFootPos, Time.deltaTime * footMoveSpeed);
-            if ((leftFootData.target.position - leftFootPos).sqrMagnitude >= 0.1f * 0.1f)
-            {
-                leftTimer = 0.1f;
-                timer = 0.1f;
-            }
-        }
-        if (rightFootData.target && rightFootData.ik)
-        {
-            var scl = humanoid.transform.right + humanoid.transform.forward;
-            var footPos = Vector3.Scale(rightFootData.target.position, scl);
-            var otherFootPos = Vector3.Scale(leftFootData.target.position, scl);
-            var hipsPos = Vector3.Scale(hips.position, scl);
-            var dir = hipsPos - footPos;
-            float amount = 1f;
-            // if (Vector3.Dot(dir, humanoid.transform.right) > 0f)
-            //     amount = 2f;
-            if (rightFootData.ik.ReachAmountSqr >= Mathf.Pow(reachDistance * rightFootData.ik.CompleteLength, 2f) /*&& timer <= 0f*/ && !flipFlop && !found)
-            // if (rightFootData.ik.IsOutOfReach && /*timer <= 0f &&*/ !flipFlop && !found)
-            {
-                rightTimer = 0.1f;
-                timer = 0.1f;
-                rightFootPos = rightFootData.target.position + dir.normalized * (stepDistance * amount * rightFootData.ik.CompleteLength * velCurve.Evaluate(velTimer));
-                flipFlop = !flipFlop;
-            }
-            rightFootData.target.position = Vector3.Lerp(rightFootData.target.position, rightFootPos, Time.deltaTime * footMoveSpeed);
-            if ((rightFootData.target.position - rightFootPos).sqrMagnitude >= 0.1f * 0.1f)
-            {
-                rightTimer = 0.1f;
-                timer = 0.1f;
-            }
-        }
-        if (timer > 0f)
-            timer -= Time.deltaTime;
-        if (leftTimer > 0f)
-            leftTimer -= Time.deltaTime;
-        if (rightTimer > 0f)
-            rightTimer -= Time.deltaTime;
-        // if (velTimer > 0f)
-            velTimer += Time.deltaTime;
-        if (vel.magnitude > Time.deltaTime * 0.1f)
-            velTimer = 0f;
-#endif
-
-#if false
-        if (moveFeet)
-        {
-            timer += vel.magnitude;
-            float speed = vel.magnitude / Time.deltaTime;
-
-            // left foot
-            {
-                float y = MapValue(Mathf.Sin(timer + Mathf.Deg2Rad * 180f), -1f, 1f, minStepHeight * speed, maxStepHeight * speed);
-                float z = MapValue(-Mathf.Cos(timer + Mathf.Deg2Rad * 180f), -1f, 1f, minStepLength * speed, maxStepLength * speed);
-
-                leftFootData.target.localPosition = new Vector3(footDistance * -0.5f, y, z);
-            }
-            // right foot
-            {
-                float y = MapValue(Mathf.Sin(timer), -1f, 1f, minStepHeight * speed, maxStepHeight * speed);
-                float z = MapValue(-Mathf.Cos(timer), -1f, 1f, minStepLength * speed, maxStepLength * speed);
-
-                rightFootData.target.localPosition = new Vector3(footDistance * 0.5f, y, z);
-            }
-        }
-#endif
 
         if (moveFeet)
         {
-            float speed = vel.magnitude;
+            float speed = lastVel.magnitude;
             // speed = 1f;
             {
                 Vector2 pos = EvaluateLoop(ref leftLoopState, ref leftTimer, loopSize, speed, 0f);
@@ -209,6 +123,9 @@ public class IKSystem : MonoBehaviour
                 leftFootData.target.localPosition = end;
             }
             {
+
+                if (rightLoopState == leftLoopState)
+                    rightLoopState = (IKLoopState)(((int)rightLoopState + 1) % (int)IKLoopState.Max);
                 Vector2 pos = EvaluateLoop(ref rightLoopState, ref rightTimer, loopSize, speed, 0.5f);
                 float y = MapValue(pos.y, 0f, 1f, minStepHeight, maxStepHeight);
                 float z = MapValue(pos.x, -1f, 1f, minStepLength, maxStepLength);
@@ -222,7 +139,13 @@ public class IKSystem : MonoBehaviour
         }
 
         if (hips)
+        {
             hipsPos = hips.position;
+
+            Vector3 newvel = vel;
+            newvel.y = 0f;
+            lastVel = Vector3.Lerp(lastVel, newvel, Time.deltaTime * 10f);
+        }
     }
 
     public void Init()

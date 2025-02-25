@@ -184,20 +184,6 @@ namespace Hypernex.Game.Avatar
 
         protected IKSystem2 AddVRIK(GameObject avatar)
         {
-            /*Transform leftHand = GetBoneFromHumanoid(HumanBodyBones.LeftHand);
-            Transform rightHand = GetBoneFromHumanoid(HumanBodyBones.RightHand);
-            Transform leftHandTemp = new GameObject("templefthandalign_" + Guid.NewGuid()).transform;
-            Transform rightHandTemp = new GameObject("temprighthandalign_" + Guid.NewGuid()).transform;
-            leftHandTemp.SetParent(leftHand);
-            leftHandTemp.localPosition = Vector3.zero;
-            leftHandTemp.localRotation = Quaternion.identity;
-            rightHandTemp.SetParent(rightHand);
-            rightHandTemp.localPosition = Vector3.zero;
-            rightHandTemp.localRotation = Quaternion.identity;
-            leftHandRot = leftHandTemp.rotation;
-            rightHandRot = rightHandTemp.rotation;
-            Object.Destroy(leftHandTemp.gameObject);
-            Object.Destroy(rightHandTemp.gameObject);*/
             IKSystem2 v = avatar.AddComponent<IKSystem2>();
             v.humanoid = MainAnimator;
             v.minStepHeight = 0.1f;
@@ -212,6 +198,25 @@ namespace Hypernex.Game.Avatar
             v.maxStepDistance = v.footDistance;
             v.handIk = false;
             v.hipIk = false;
+            return v;
+        }
+
+        protected IKSystem AddVRIK2(GameObject avatar)
+        {
+            IKSystem v = avatar.AddComponent<IKSystem>();
+            v.humanoid = MainAnimator;
+            v.minStepHeight = 0.1f;
+            v.stepDistance = 0.1f;
+            v.footMoveSpeed = 5f;
+            // v.timeoutTime = 0.25f;
+            // v.footAnimCurve = new AnimationCurve();
+            // v.footAnimCurve.AddKey(0f, 0f);
+            // v.footAnimCurve.AddKey(0.5f, 1f);
+            // v.footAnimCurve.AddKey(1f, 0f);
+            v.Init();
+            // v.maxStepDistance = v.footDistance;
+            v.handIk = false;
+            // v.hipIk = false;
             return v;
         }
 
