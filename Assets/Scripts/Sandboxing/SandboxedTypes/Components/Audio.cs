@@ -30,8 +30,17 @@ namespace Hypernex.Sandboxing.SandboxedTypes.Components
             audioSource = GetAudioSource(i);
             if (audioSource == null) throw new Exception("No AudioSource found on Item at " + i.Path);
         }
+        
+        public bool Enabled
+        {
+            get => audioSource == null ? false : audioSource.enabled;
+            set
+            {
+                if(read || audioSource == null) return;
+                audioSource.enabled = value;
+            }
+        }
 
-        public bool IsValid() => audioSource != null;
         public bool IsPlaying() => audioSource.isPlaying;
         public bool IsMuted() => audioSource.mute;
         public bool IsLooping() => audioSource.loop;
@@ -131,13 +140,13 @@ namespace Hypernex.Sandboxing.SandboxedTypes.Components
             }
         }
 
-        public void LoadFromCobalt(CobaltDownload cobaltDownload, object onLoad)
+        public void LoadFromStream(Streaming.StreamDownload streamDownload, object onLoad)
         {
             if(read || audioSource == null)
                 return;
-            if (!File.Exists(cobaltDownload.PathToFile))
+            if (streamDownload.isStream || !File.Exists(streamDownload.pathToFile))
                 return;
-            CoroutineRunner.Instance.StartCoroutine(WaitForAudio("file://" + cobaltDownload.PathToFile, audioSource,
+            CoroutineRunner.Instance.StartCoroutine(WaitForAudio("file://" + streamDownload.pathToFile, audioSource,
                 onLoad));
         }
     }

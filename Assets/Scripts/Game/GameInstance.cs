@@ -2,8 +2,8 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Hypernex.CCK;
-using Hypernex.CCK.Unity;
+using Hypernex.CCK.Unity.Assets;
+using Hypernex.CCK.Unity.Internals;
 using Hypernex.Networking;
 using Hypernex.Networking.Messages;
 using Hypernex.Player;
@@ -11,7 +11,6 @@ using Hypernex.Sandboxing;
 using Hypernex.Sandboxing.SandboxedTypes.Handlers;
 using Hypernex.Tools;
 using Hypernex.Tools.Debug;
-using Hypernex.UI.Templates;
 using HypernexSharp.APIObjects;
 using HypernexSharp.Socketing.SocketResponses;
 using HypernexSharp.SocketObjects;
@@ -21,8 +20,8 @@ using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 using Object = UnityEngine.Object;
 using Physics = UnityEngine.Physics;
-using Security = Hypernex.CCK.Unity.Security;
-using World = Hypernex.CCK.Unity.World;
+using Security = Hypernex.CCK.Unity.Internals.Security;
+using World = Hypernex.CCK.Unity.Assets.World;
 
 namespace Hypernex.Game
 {
@@ -36,6 +35,7 @@ namespace Hypernex.Game
         public static Action<GameInstance, WorldMeta, Scene> OnGameInstanceLoaded { get; set; } =
             (instance, meta, scene) => { };
         public static Action<GameInstance> OnGameInstanceDisconnect { get; set; } = instance => { };
+        public static Dictionary<WorldMeta, float> WorldDownloadProgress = new();
 
         internal static void Init()
         {
@@ -57,6 +57,47 @@ namespace Hypernex.Game
                 gameInstance.Load();
             };
         }
+
+        internal static void HandleDownloadProgress(WorldMeta worldMeta, float progress)
+        {
+            if (WorldDownloadProgress.Count(x => x.Key.Id == worldMeta.Id) <= 0)
+            {
+                WorldDownloadProgress.Add(worldMeta, progress);
+                return;
+            }
+            for (int i = 0; i < WorldDownloadProgress.Count; i++)
+            {
+                WorldMeta w = WorldDownloadProgress.ElementAt(i).Key;
+                if(w.Id != worldMeta.Id) continue;
+                WorldDownloadProgress[w] = progress;
+            }
+        }
+
+        public static bool IsDownloading(string worldId) => WorldDownloadProgress.Count(x => x.Key.Id == worldId) > 0;
+        public static bool IsDownloading(WorldMeta worldMeta) => IsDownloading(worldMeta.Id);
+        
+        public static float? GetDownloadProgress(string worldId)
+        {
+            for (int i = 0; i < WorldDownloadProgress.Count; i++)
+            {
+                KeyValuePair<WorldMeta, float> pair = WorldDownloadProgress.ElementAt(i);
+                WorldMeta w = pair.Key;
+                if(w.Id != worldId) continue;
+                return pair.Value;
+            }
+            return null;
+        }
+        public static float? GetDownloadProgress(WorldMeta worldMeta) => GetDownloadProgress(worldMeta.Id);
+
+        public static (WorldMeta, float)[] GetAllDownloads()
+        {
+            int count = WorldDownloadProgress.Count;
+            if (count <= 0) return Array.Empty< (WorldMeta, float)>();
+            return WorldDownloadProgress.Select(x => (x.Key, x.Value)).ToArray();
+        }
+
+        internal static void FinishDownload(WorldMeta worldMeta) => WorldDownloadProgress =
+            WorldDownloadProgress.Where(x => x.Key.Id != worldMeta.Id).ToDictionary(x => x.Key, y => y.Value);
         
         public static User[] GetConnectedUsers(GameInstance gameInstance, bool includeLocal = true)
         {
@@ -101,11 +142,11 @@ namespace Hypernex.Game
                     case InstancePublicity.Acquaintances:
                     case InstancePublicity.Friends:
                     case InstancePublicity.OpenRequest:
-                        if (host == null)
-                            return false;
-                        return host.Friends.Contains(APIPlayer.APIUser.Id);
+                        return true;
                     case InstancePublicity.ModeratorRequest:
                         return Moderators.Contains(APIPlayer.APIUser.Id);
+                    case InstancePublicity.ClosedRequest:
+                        return false;
                 }
                 return false;
             }
@@ -184,6 +225,7 @@ namespace Hypernex.Game
             string ip = s[0];
             int port = Convert.ToInt32(s[1]);
             InstanceProtocol instanceProtocol = instanceOpened.InstanceProtocol;
+            host = APIPlayer.APIUser;
             SetupClient(ip, port, instanceProtocol);
         }
 
@@ -403,24 +445,13 @@ namespace Hypernex.Game
                 {
                     loadedScene = currentScene;
                     FocusedInstance = this;
-                    if(string.IsNullOrEmpty(worldMeta.ThumbnailURL))
-                        CurrentInstanceBanner.Instance.Render(this, Array.Empty<byte>());
-                    else
-                        DownloadTools.DownloadBytes(worldMeta.ThumbnailURL,
-                            bytes =>
-                            {
-                                Thumbnail = ImageTools.BytesToTexture2D(worldMeta.ThumbnailURL, bytes);
-                                CurrentInstanceBanner.Instance.Render(this, bytes);
-                            });
                     if (open)
                         Open();
-                    foreach (NexboxScript worldLocalScript in World.LocalScripts)
-                        sandboxes.Add(new Sandbox(worldLocalScript, this, World.gameObject));
                     foreach (LocalScript ls in Object.FindObjectsByType<LocalScript>(FindObjectsInactive.Include, FindObjectsSortMode.None))
                     {
                         Transform r = AnimationUtility.GetRootOfChild(ls.transform);
                         if(r.GetComponent<LocalPlayer>() == null && r.GetComponent<NetPlayer>() == null)
-                            sandboxes.Add(new Sandbox(ls.NexboxScript, this, ls.gameObject));
+                            sandboxes.Add(new Sandbox(ls.Script, this, ls.gameObject));
                     }
                     if (LocalPlayer.Instance.Dashboard.IsVisible)
                         LocalPlayer.Instance.Dashboard.ToggleDashboard(LocalPlayer.Instance);
@@ -472,6 +503,7 @@ namespace Hypernex.Game
                         knownHash = fileMetaResult.result.FileMeta.Hash;
                     DownloadTools.DownloadFile(fileURL, $"{worldMeta.Id}.hnw", o =>
                     {
+                        FinishDownload(worldMeta);
                         CoroutineRunner.Instance.Run(AssetBundleTools.LoadSceneFromFile(o, s =>
                         {
                             if (!string.IsNullOrEmpty(s))
@@ -479,7 +511,7 @@ namespace Hypernex.Game
                             else
                                 Dispose();
                         }, this));
-                    }, knownHash);
+                    }, knownHash, args => HandleDownloadProgress(worldMeta, args.ProgressPercentage / 100f));
                 }, worldMeta.OwnerId, fileId);
             }
         }
@@ -500,9 +532,9 @@ namespace Hypernex.Game
                             host = connectedUser;
                         }
                     }
-                if(host != null)
-                    DiscordTools.FocusInstance(worldMeta, gameServerId + "/" + instanceId, host);
             }
+            if(host != null)
+                DiscordTools.FocusInstance(worldMeta, gameServerId + "/" + instanceId, host);
             sandboxes.ForEach(x => x.InstanceContainer.Runtime.Update());
             volumes.SelectVolume();
         }

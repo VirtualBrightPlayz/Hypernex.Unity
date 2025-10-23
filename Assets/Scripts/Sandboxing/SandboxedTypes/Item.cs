@@ -7,6 +7,7 @@ using Hypernex.Networking.Messages.Data;
 using Hypernex.Sandboxing.SandboxedTypes.Components;
 using Hypernex.Tools;
 using UnityEngine;
+using Light = Hypernex.Sandboxing.SandboxedTypes.Components.Light;
 using Object = UnityEngine.Object;
 
 namespace Hypernex.Sandboxing.SandboxedTypes
@@ -263,6 +264,8 @@ namespace Hypernex.Sandboxing.SandboxedTypes
         private static readonly IReadOnlyDictionary<string, Type> ComponentTypes = new ReadOnlyDictionary<string, Type>(
             new Dictionary<string, Type>
             {
+                ["animator"] = typeof(Components.Animator),
+                ["animation"] = typeof(Components.Animation),
                 ["audio"] = typeof(Audio),
                 ["button"] = typeof(Button),
                 ["dropdown"] = typeof(Dropdown),
@@ -274,7 +277,11 @@ namespace Hypernex.Sandboxing.SandboxedTypes
                 ["toggle"] = typeof(Toggle),
                 ["video"] = typeof(Video),
                 ["physicsbody"] = typeof(PhysicsBody),
-                ["interactables"] = typeof(Interactables)
+                ["interactables"] = typeof(Interactables),
+                ["light"] = typeof(Light),
+                ["navagent"] = typeof(NavAgent),
+                ["navsurface"] = typeof(NavSurface),
+                ["renderer"] = typeof(Components.Renderer),
             });
 
         public object GetComponent(string componentName)

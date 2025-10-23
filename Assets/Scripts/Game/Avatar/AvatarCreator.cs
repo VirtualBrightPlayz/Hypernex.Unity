@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Hypernex.CCK.Unity;
+using Hypernex.CCK.Unity.Assets;
+using Hypernex.CCK.Unity.Descriptors;
+using Hypernex.CCK.Unity.Interaction;
 using Hypernex.CCK.Unity.Internals;
 using Hypernex.Networking.Messages;
 using Hypernex.Sandboxing;
@@ -14,7 +16,7 @@ using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.Playables;
 using Object = UnityEngine.Object;
-using Security = Hypernex.CCK.Unity.Security;
+using Security = Hypernex.CCK.Unity.Internals.Security;
 
 namespace Hypernex.Game.Avatar
 {
@@ -26,7 +28,7 @@ namespace Hypernex.Game.Avatar
         public const string ALL_ANIMATOR_LAYERS = "*all";
         protected const float CHARACTER_HEIGHT = 1.36144f;
         
-        public CCK.Unity.Avatar Avatar { get; protected set; }
+        public CCK.Unity.Assets.Avatar Avatar { get; protected set; }
         public AvatarMeta AvatarMeta { get; private set; }
         public Animator MainAnimator { get; protected set; }
         public FaceTrackingDescriptor FaceTrackingDescriptor { get; protected set; }
@@ -67,20 +69,13 @@ namespace Hypernex.Game.Avatar
             }
         }
 
-        private AnimatorControllerParameter[] _mainParameters;
-
-        public AnimatorControllerParameter[] MainAnimatorParameters
-        {
-            get
-            {
-                if (_mainParameters == null)
-                {
-                    if (MainAnimator == null) return Array.Empty<AnimatorControllerParameter>();
-                    _mainParameters = MainAnimator.parameters;
-                }
-                return _mainParameters;
-            }
-        }
+        public AnimatorControllerParameter[] MainAnimatorParameters => MainAnimator == null
+            ? Array.Empty<AnimatorControllerParameter>()
+            : MainAnimator.parameters;
+        
+        protected BlendshapeDescriptor[] EyeRenderers { get; private set; }
+        protected BlendshapeDescriptor[] VisemeRenderers { get; private set; }
+        protected BlendshapeDescriptor[] FaceTrackingRenders { get; private set; }
         
         protected GameObject HeadAlign;
         internal GameObject VoiceAlign;
@@ -98,22 +93,24 @@ namespace Hypernex.Game.Avatar
         protected IKSystem2 vrik;
 #endif
         internal RotationOffsetDriver headRotator;
+        private Dictionary<SkinnedMeshRenderer, HashSet<int>> usedVisemes;
 
-        protected void OnCreate(CCK.Unity.Avatar a, int layer, AllowedAvatarComponent allowedAvatarComponent, AvatarMeta meta)
+        protected void OnCreate(CCK.Unity.Assets.Avatar a, int layer, AllowedAvatarComponent allowedAvatarComponent, AvatarMeta meta)
         {
             Security.RemoveOffendingItems(a, allowedAvatarComponent,
                 SecurityTools.AdditionalAllowedAvatarTypes.ToArray());
             Security.ApplyComponentRestrictions(a);
             AvatarMeta = meta;
             FaceTrackingDescriptor = a.gameObject.GetComponent<FaceTrackingDescriptor>();
+            if (FaceTrackingDescriptor != null)
+                FaceTrackingRenders =
+                    BlendshapeDescriptor.GetAllDescriptors(FaceTrackingDescriptor.SkinnedMeshRenderers.ToArray());
             foreach (SkinnedMeshRenderer skinnedMeshRenderer in a.gameObject
                          .GetComponentsInChildren<SkinnedMeshRenderer>())
             {
                 skinnedMeshRenderer.updateWhenOffscreen = true;
                 skinnedMeshRenderers.Add(skinnedMeshRenderer);
             }
-            foreach (MaterialDescriptor materialDescriptor in a.transform.GetComponentsInChildren<MaterialDescriptor>())
-                materialDescriptor.SetMaterials(AssetBundleTools.Platform);
             foreach (Transform transform in a.transform.GetComponentsInChildren<Transform>())
                 transform.gameObject.layer = layer;
             Animator an = a.transform.GetComponent<Animator>();
@@ -129,6 +126,9 @@ namespace Hypernex.Game.Avatar
             vrikSettings.headOffset = head.position - HeadAlign.transform.position;
             vrikSettings.scaleMlp = a.transform.localScale.y;
 #endif
+            EyeRenderers = BlendshapeDescriptor.GetAllDescriptors(a.EyeRenderers.ToArray());
+            VisemeRenderers = BlendshapeDescriptor.GetAllDescriptors(a.VisemeRenderers.ToArray());
+            usedVisemes = BlendshapeDescriptor.GetUsedBlendshapes(VisemeRenderers, a.VisemesDict);
         }
 
         protected void DriveCamera(Transform cam)
@@ -162,6 +162,29 @@ namespace Hypernex.Game.Avatar
                 playableGraph.Play();
             }
             DefaultWeights = GetAnimatorWeights(true);
+            if(Avatar.Parameters == null) return;
+            for (int i = 0; i < DefaultWeights.Count; i++)
+            {
+                WeightedObjectUpdate weightedObjectUpdate = DefaultWeights.ElementAt(i);
+                if(weightedObjectUpdate.TypeOfWeight != PARAMETER_ID) continue;
+                foreach (AvatarParameter avatarParameter in Avatar.Parameters.Parameters)
+                {
+                    if(weightedObjectUpdate.WeightIndex != avatarParameter.ParameterName) continue;
+                    switch (avatarParameter.ParameterType)
+                    {
+                        case AnimatorControllerParameterType.Float:
+                            DefaultWeights[i].Weight = avatarParameter.DefaultFloatValue;
+                            break;
+                        case AnimatorControllerParameterType.Int:
+                            DefaultWeights[i].Weight = avatarParameter.DefaultIntValue.ParameterToFloat();
+                            break;
+                        case AnimatorControllerParameterType.Bool:
+                            DefaultWeights[i].Weight = avatarParameter.DefaultBoolValue.ParameterToFloat();
+                            break;
+                    }
+                }
+            }
+            SetParameters(DefaultWeights.ToArray());
         }
 
         private Bounds GetAvatarBounds()
@@ -221,80 +244,84 @@ namespace Hypernex.Game.Avatar
         }
 
 #if FINAL_IK
-        private void SetCalibrationMeta()
+        private void SetCalibrationMeta(VRIK v, bool isFBT)
         {
-            vrik.solver.locomotion.stepThreshold = 0.01f;
-            vrik.solver.locomotion.angleThreshold = 20;
-            vrik.solver.plantFeet = false;
+            v.solver.scale = Avatar.transform.localScale.y;
+            v.solver.spine.pelvisPositionWeight = isFBT ? 0.5f : 0;
+            v.solver.spine.pelvisRotationWeight = isFBT ? 1 : 0;
+            v.solver.spine.maintainPelvisPosition = 0f;
+            v.solver.spine.chestGoalWeight = 0.1f;
+            v.solver.spine.chestClampWeight = 0.38f;
+            v.solver.spine.headClampWeight = 0f;
+            v.solver.locomotion.footDistance = 0.15f;
+            v.solver.locomotion.stepThreshold = 0.1f;
+            v.solver.locomotion.angleThreshold = 5f;
+            v.solver.plantFeet = true;
         }
         
-        /*private Quaternion leftHandRot;
-        private Quaternion rightHandRot;*/
+        private Quaternion headRot;
+        private Quaternion leftHandRot;
+        private Quaternion rightHandRot;
 
         protected VRIK AddVRIK(GameObject avatar)
         {
-            /*Transform leftHand = GetBoneFromHumanoid(HumanBodyBones.LeftHand);
-            Transform rightHand = GetBoneFromHumanoid(HumanBodyBones.RightHand);
-            Transform leftHandTemp = new GameObject("templefthandalign_" + Guid.NewGuid()).transform;
-            Transform rightHandTemp = new GameObject("temprighthandalign_" + Guid.NewGuid()).transform;
-            leftHandTemp.SetParent(leftHand);
-            leftHandTemp.localPosition = Vector3.zero;
-            leftHandTemp.localRotation = Quaternion.identity;
-            rightHandTemp.SetParent(rightHand);
-            rightHandTemp.localPosition = Vector3.zero;
-            rightHandTemp.localRotation = Quaternion.identity;
-            leftHandRot = leftHandTemp.rotation;
-            rightHandRot = rightHandTemp.rotation;
-            Object.Destroy(leftHandTemp.gameObject);
-            Object.Destroy(rightHandTemp.gameObject);*/
+            Quaternion saved = avatar.transform.rotation;
+            avatar.transform.rotation = Quaternion.identity;
+            headRot = GetBoneRestRotation(HumanBodyBones.Head);
+            leftHandRot = GetBoneRestRotation(HumanBodyBones.LeftHand);
+            rightHandRot = GetBoneRestRotation(HumanBodyBones.RightHand);
+            avatar.transform.rotation = saved;
             VRIK v = avatar.AddComponent<VRIK>();
             return v;
+        }
+
+        private void LocalCalibrate()
+        {
+            vrik.solver.spine.headTarget.localRotation = headRot;
+            vrik.solver.leftArm.target.localRotation = leftHandRot;
+            vrik.solver.rightArm.target.localRotation = rightHandRot;
         }
 
         protected VRIKCalibrator.CalibrationData CalibrateVRIK(Transform cameraTransform, Transform LeftHandReference, Transform RightHandReference)
         {
             VRIKCalibrator.CalibrationData calibrationData = VRIKCalibrator.Calibrate(vrik, vrikSettings,
                 cameraTransform, null, LeftHandReference.transform, RightHandReference.transform);
-            // TODO: Rotate Correctly
-            /*LeftHandReference.GetComponent<RotationConstraint>().rotationOffset = leftHandRot.eulerAngles;
-            RightHandReference.GetComponent<RotationConstraint>().rotationOffset = rightHandRot.eulerAngles;
-            vrik.solver.leftArm.target = LeftHandReference;
-            vrik.solver.rightArm.target = RightHandReference;*/
-            SetCalibrationMeta();
+            SetCalibrationMeta(vrik, false);
+            LocalCalibrate();
             return calibrationData;
         }
 
         protected VRIKCalibrator.CalibrationData CalibrateVRIK(Transform cameraTransform, Transform bodyTracker,
             Transform LeftHandReference, Transform RightHandReference, Transform leftFootTracker,
-            Transform rightFootTracker) => VRIKCalibrator.Calibrate(vrik, vrikSettings, cameraTransform, bodyTracker,
-            LeftHandReference, RightHandReference, leftFootTracker, rightFootTracker);
-
-        protected void CalibrateVRIK(VRIKCalibrator.CalibrationData calibrationData, Transform headReference, Transform leftHandReference, Transform rightHandReference)
+            Transform rightFootTracker)
         {
-            VRIKCalibrator.Calibrate(vrik, calibrationData, headReference, null, leftHandReference,
-                rightHandReference);
-            SetCalibrationMeta();
+            VRIKCalibrator.CalibrationData data = VRIKCalibrator.Calibrate(vrik, vrikSettings, cameraTransform,
+                bodyTracker, LeftHandReference, RightHandReference, leftFootTracker, rightFootTracker);
+            SetCalibrationMeta(vrik, true);
+            LocalCalibrate();
+            return data;
+        }
+
+        protected void CalibrateVRIK(VRIKCalibrator.CalibrationData calibrationData, Transform headReference,
+            Transform leftHandReference, Transform rightHandReference)
+        {
+            VRIKCalibrator.Calibrate(vrik, calibrationData, headReference, null, leftHandReference, rightHandReference);
+            SetCalibrationMeta(vrik, false);
+            LocalCalibrate();
         }
 
         protected void CalibrateVRIK(VRIKCalibrator.CalibrationData calibrationData, Transform headReference,
             Transform body, Transform leftHandReference, Transform rightHandReference, Transform leftFootTracker,
-            Transform rightFootTracker) => VRIKCalibrator.Calibrate(vrik, calibrationData, headReference, body,
-            leftHandReference, rightHandReference, leftFootTracker, rightFootTracker);
+            Transform rightFootTracker)
+        {
+            VRIKCalibrator.Calibrate(vrik, calibrationData, headReference, body, leftHandReference, rightHandReference,
+                leftFootTracker, rightFootTracker);
+            SetCalibrationMeta(vrik, true);
+            LocalCalibrate();
+        }
 
         protected void UpdateVRIK(bool fbt, bool isMoving, float scale)
         {
-            if(fbt)
-            {
-                vrik.solver.spine.pelvisPositionWeight = 1f;
-                vrik.solver.spine.pelvisRotationWeight = 1f;
-            }
-            else
-            {
-                vrik.solver.locomotion.footDistance = 0.1f * scale * CHARACTER_HEIGHT;
-                vrik.solver.locomotion.stepThreshold = 0.2f * scale * CHARACTER_HEIGHT;
-                vrik.solver.spine.pelvisPositionWeight = 0f;
-                vrik.solver.spine.pelvisRotationWeight = 0f;
-            }
             vrik.solver.locomotion.weight = isMoving || fbt ? 0f : 1f;
         }
 #endif
@@ -441,7 +468,7 @@ namespace Hypernex.Game.Avatar
         public void SetParameter<T>(string parameterName, T value, CustomPlayableAnimator target = null, 
             bool force = false, bool mainAnimator = false)
         {
-            if (mainAnimator)
+            if (mainAnimator && MainAnimator != null)
             {
                 try
                 {
@@ -630,7 +657,35 @@ namespace Hypernex.Game.Avatar
                 SetParameter(weight);
         }
 
-        internal List<WeightedObjectUpdate> GetAnimatorWeights(bool skipMain = false)
+        private bool? IsNetworked(AnimatorControllerParameter playableParameter)
+        {
+            AvatarParameter avatarParameter = null;
+            if (Avatar.Parameters == null) return false;
+            foreach (AvatarParameter parameter in Avatar.Parameters.Parameters)
+            {
+                if(parameter.ParameterName != playableParameter.name) continue;
+                avatarParameter = parameter;
+                break;
+            }
+            if (avatarParameter == null) return null;
+            return avatarParameter.IsNetworked;
+        }
+        
+        private bool? IsSaved(AnimatorControllerParameter playableParameter)
+        {
+            AvatarParameter avatarParameter = null;
+            if (Avatar.Parameters == null) return true;
+            foreach (AvatarParameter parameter in Avatar.Parameters.Parameters)
+            {
+                if(parameter.ParameterName != playableParameter.name) continue;
+                avatarParameter = parameter;
+                break;
+            }
+            if (avatarParameter == null) return null;
+            return avatarParameter.Saved;
+        }
+
+        internal List<WeightedObjectUpdate> GetAnimatorWeights(bool skipMain = false, bool includeNonNetworked = true, bool includeSaved = true)
         {
             List<WeightedObjectUpdate> weights = new();
             if(MainAnimator != null && !skipMain)
@@ -666,6 +721,8 @@ namespace Hypernex.Game.Avatar
             {
                 foreach (AnimatorControllerParameter playableAnimatorControllerParameter in playableAnimator.AnimatorControllerParameters)
                 {
+                    if(!includeNonNetworked && !(IsNetworked(playableAnimatorControllerParameter) ?? false)) continue;
+                    if(!includeSaved && (IsSaved(playableAnimatorControllerParameter) ?? false)) continue;
                     WeightedObjectUpdate weightedObjectUpdate = new WeightedObjectUpdate
                     {
                         PathToWeightContainer = playableAnimator.CustomPlayableAnimator.AnimatorController.name,
@@ -703,21 +760,20 @@ namespace Hypernex.Game.Avatar
                 if(p == null) continue;
                 for (int i = 0; i < skinnedMeshRenderer.sharedMesh.blendShapeCount; i++)
                 {
-                    // Exclude Visemes
-                    if (Avatar.UseVisemes && Avatar.VisemesDict.Count(x =>
-                            x.Value.SkinnedMeshRenderer == skinnedMeshRenderer && x.Value.BlendshapeIndex == i) >
-                        0) continue;
-                    // Exclude ShadowClones
-                    if(skinnedMeshRenderer.gameObject.name.Contains("shadowclone_")) continue;
+                    if (Avatar.UseVisemes &&
+                        usedVisemes.TryGetValue(skinnedMeshRenderer, out HashSet<int> used) &&
+                        used.Contains(i))
+                    {
+                        continue;
+                    }
                     float w = skinnedMeshRenderer.GetBlendShapeWeight(i);
-                    WeightedObjectUpdate weightedObjectUpdate = new WeightedObjectUpdate
+                    weights.Add(new WeightedObjectUpdate
                     {
                         PathToWeightContainer = p.path,
                         TypeOfWeight = BLENDSHAPE_ID,
                         WeightIndex = i.ToString(),
                         Weight = w
-                    };
-                    weights.Add(weightedObjectUpdate);
+                    });
                 }
             }
             return weights;
@@ -735,14 +791,36 @@ namespace Hypernex.Game.Avatar
                 return null;
             return MainAnimator.GetBoneTransform(humanBodyBones);
         }
+
+        public Quaternion GetBoneRestRotation(HumanBodyBones humanBodyBones)
+        {
+            if (MainAnimator == null)
+                return Quaternion.identity;
+            Quaternion rot = Quaternion.identity;
+            Transform xform = MainAnimator.GetBoneTransform(humanBodyBones);
+            if (xform == null)
+                return Quaternion.identity;
+            while (xform != null && xform != MainAnimator.avatarRoot)
+            {
+                if (MainAnimator.avatar.humanDescription.skeleton.Any(x => x.name == xform.name))
+                {
+                    rot = MainAnimator.avatar.humanDescription.skeleton.First(x => x.name == xform.name).rotation * rot;
+                }
+                else
+                {
+                    CCK.Logger.CurrentLogger.Warn($"Transform Bone not found: {xform.name}");
+                    break;
+                }
+                xform = xform.parent;
+            }
+            return rot;
+        }
         
         internal void ApplyAudioClipToLipSync(float[] data)
         {
             if (lipSyncContext == null)
                 return;
-            lipSyncContext.PreprocessAudioSamples(data, (int) Mic.NumChannels);
             lipSyncContext.ProcessAudioSamples(data, (int) Mic.NumChannels);
-            lipSyncContext.PostprocessAudioSamples(data, (int) Mic.NumChannels);
         }
         
         protected OVRLipSyncContextMorphTarget GetMorphTargetBySkinnedMeshRenderer(

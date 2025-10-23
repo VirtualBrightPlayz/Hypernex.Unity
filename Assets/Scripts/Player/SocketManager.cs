@@ -4,7 +4,7 @@ using System.Linq;
 using Hypernex.CCK;
 using Hypernex.Game;
 using Hypernex.Tools;
-using Hypernex.UI.Templates;
+using Hypernex.UI.Abstraction;
 using HypernexSharp.APIObjects;
 using HypernexSharp.Socketing.SocketMessages;
 using HypernexSharp.Socketing.SocketResponses;
@@ -41,7 +41,7 @@ namespace Hypernex.Player
                 {
                     case "joinedinstance":
                         JoinedInstance joinedInstance = (JoinedInstance) response;
-                        WorldTemplate.GetWorldMeta(joinedInstance.worldId, meta =>
+                        WorldRender.GetWorldMeta(joinedInstance.worldId, meta =>
                         {
                             if(meta != null)
                                 QuickInvoke.InvokeActionOnMainThread(OnInstanceJoined, joinedInstance, meta);
@@ -51,7 +51,7 @@ namespace Hypernex.Player
                         break;
                     case "instanceopened":
                         InstanceOpened instanceOpened = (InstanceOpened) response;
-                        WorldTemplate.GetWorldMeta(instanceOpened.worldId, meta =>
+                        WorldRender.GetWorldMeta(instanceOpened.worldId, meta =>
                         {
                             if(meta != null)
                                 QuickInvoke.InvokeActionOnMainThread(OnInstanceOpened, instanceOpened, meta);
@@ -142,13 +142,14 @@ namespace Hypernex.Player
                     knownHash = fileMetaResult.result.FileMeta.Hash;
                 DownloadTools.DownloadFile(fileURL, $"{worldMeta.Id}.hnw", o =>
                 {
+                    GameInstance.FinishDownload(worldMeta);
                     if (DownloadedWorlds.ContainsKey(worldMeta.Id))
                         DownloadedWorlds.Remove(worldMeta.Id);
                     DownloadedWorlds.Add(worldMeta.Id, o);
                     if (APIPlayer.IsFullReady)
                         APIPlayer.UserSocket.RequestNewInstance(worldMeta, instancePublicity, instanceProtocol,
                             gameServer);
-                }, knownHash);
+                }, knownHash, args => GameInstance.HandleDownloadProgress(worldMeta, args.ProgressPercentage / 100f));
             }, worldMeta.OwnerId, targetBuild.FileId);
         }
 
@@ -210,18 +211,19 @@ namespace Hypernex.Player
                     knownHash = fileMetaResult.result.FileMeta.Hash;
                 DownloadTools.DownloadFile(fileURL, $"{worldMeta.Id}.hnw", o =>
                 {
+                    GameInstance.FinishDownload(worldMeta);
                     if (DownloadedWorlds.ContainsKey(worldMeta.Id))
                         DownloadedWorlds.Remove(worldMeta.Id);
                     DownloadedWorlds.Add(worldMeta.Id, o);
                     if (APIPlayer.IsFullReady)
                         APIPlayer.UserSocket.JoinInstance(instance.GameServerId, instance.InstanceId);
-                }, knownHash);
+                }, knownHash, args => GameInstance.HandleDownloadProgress(worldMeta, args.ProgressPercentage / 100f));
             }, worldMeta.OwnerId, targetBuild.FileId);
         }
         
         public static void JoinInstance(SafeInstance instance)
         {
-            WorldTemplate.GetWorldMeta(instance.WorldId, worldMeta =>
+            WorldRender.GetWorldMeta(instance.WorldId, worldMeta =>
             {
                 if (worldMeta.Publicity == WorldPublicity.OwnerOnly)
                 {

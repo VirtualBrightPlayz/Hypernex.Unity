@@ -2,17 +2,18 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using FFMediaToolkit;
 using Hypernex.Player;
 using Hypernex.UI;
-using Hypernex.CCK.Unity;
+using Hypernex.CCK.Unity.Internals;
 using Hypernex.Configuration;
 using Hypernex.Configuration.ConfigMeta;
 using Hypernex.ExtendedTracking;
 using Hypernex.Game;
 using Hypernex.Sandboxing.SandboxedTypes;
 using Hypernex.Tools;
+using Hypernex.UI.Components;
 using Hypernex.UI.Templates;
-using Hypernex.UIActions;
 using HypernexSharp.APIObjects;
 using TMPro;
 using UnityEngine;
@@ -23,6 +24,7 @@ using UnityEngine.Audio;
 using UnityEngine.Rendering;
 using UnityEngine.XR.Management;
 #if VLC
+using Hypernex.Game.Video;
 using LibVLCSharp;
 #endif
 using Logger = Hypernex.CCK.Logger;
@@ -31,6 +33,15 @@ using Object = UnityEngine.Object;
 
 public class Init : MonoBehaviour
 {
+    internal const string DEFAULT_DOMAIN = "play.hypernex.dev";
+    internal const string DEFAULT_WEB_URL = "https://" + DEFAULT_DOMAIN;
+    internal const string WEBSITE = "https://hypernex.dev/";
+    internal const string FORUM_URL = "https://forum.hypernex.dev/";
+    internal const string GITHUB_URL = "https://github.com/TigersUniverse";
+    internal const string DISCORD_URL = WEBSITE + "discord";
+    internal const string X_URL = "https://x.com/HypernexGame";
+    internal const string BLUESKY_URL = "https://bsky.app/profile/hypernex.dev";
+    
     public string Version => Application.version;
 
     public static Init Instance;
@@ -45,12 +56,11 @@ public class Init : MonoBehaviour
     public AudioMixerGroup VoiceGroup;
     public AudioMixerGroup WorldGroup;
     public AudioMixerGroup AvatarGroup;
-    public OverlayManager OverlayManager;
+    public OverlayNotification OverlayManager;
     public List<TMP_Text> VersionLabels = new();
-    public CurrentAvatar ca;
     public Texture2D MouseTexture;
     public Texture2D CircleMouseTexture;
-    public CreateInstanceTemplate CreateInstanceTemplate;
+    public CreateInstanceWindow CreateInstanceWindow;
     public float SmoothingFrames = 0.1f;
     public List<Object> BadgeRankAssets = new();
     public bool NoVLC;
@@ -60,6 +70,7 @@ public class Init : MonoBehaviour
 
     public string GetPluginLocation() => Path.Combine(Application.persistentDataPath, "Plugins");
     public string GetDatabaseLocation() => Path.Combine(Application.persistentDataPath, "Databases");
+    public string GetYTDLLocation() => Path.Combine(Application.streamingAssetsPath, "ytdl");
 
     internal void StartVR()
     {
@@ -79,16 +90,12 @@ public class Init : MonoBehaviour
         LocalPlayer.StopVR();
     }
 
-#if VLC
-    private void Awake() => Core.Initialize(Application.dataPath);
-#endif
-
     private void Start()
     {
         Instance = this;
         UnityLogger unityLogger = new UnityLogger();
         unityLogger.SetLogger();
-        CursorTools.UpdateMouseIcon(true, DefaultTheme.PrimaryVectorColor);
+        CursorTools.UpdateMouseIcon(true, DefaultTheme.PrimaryColorTheme);
         OverlayManager.Begin();
         Application.wantsToQuit += () =>
         {
@@ -143,7 +150,7 @@ public class Init : MonoBehaviour
                 break;
         }
         SecurityTools.AllowExtraTypes();
-        SecurityTools.ImplementRestrictions();
+        ExtraSandboxTools.ImplementRestrictions();
         kTools.Mirrors.Mirror.OnMirrorCreation += mirror => mirror.CustomCameraControl = true;
         RenderPipelineManager.beginCameraRendering += BeginRender_NoAvatar;
         AvatarNearClip.BeforeClip += BeginRender_Avatar;
@@ -155,6 +162,31 @@ public class Init : MonoBehaviour
         audioMixers.Add(VoiceGroup, VoiceGroup.audioMixer);
         audioMixers.Add(WorldGroup, WorldGroup.audioMixer);
         audioMixers.Add(AvatarGroup, AvatarGroup.audioMixer);
+        if (!Directory.Exists(GetYTDLLocation()))
+            Directory.CreateDirectory(GetYTDLLocation());
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
+        Streaming.ytdl.YoutubeDLPath = Path.Combine(GetYTDLLocation(), "yt-dlp.exe");
+        Streaming.ytdl.FFmpegPath = Path.Combine(GetYTDLLocation(), "ffmpeg.exe");
+#elif UNITY_MAC
+        Streaming.ytdl.YoutubeDLPath = Path.Combine(GetYTDLLocation(), "yt-dlp_macos");
+        Streaming.ytdl.FFmpegPath = Path.Combine(GetYTDLLocation(), "ffmpeg");
+#else
+        Streaming.ytdl.YoutubeDLPath = Path.Combine(GetYTDLLocation(), "yt-dlp");
+        Streaming.ytdl.FFmpegPath = Path.Combine(GetYTDLLocation(), "ffmpeg");
+#endif
+        Streaming.ytdl.OutputFolder = Path.Combine(GetYTDLLocation(), "Downloads");
+        YoutubeDLSharp.Utils.DownloadBinaries(true, GetYTDLLocation());
+        try
+        {
+            string ffmpegPath = Path.Combine(Application.streamingAssetsPath, "ffmpeg");
+            FFMpegDownloader.Download(ffmpegPath);
+            FFmpegLoader.FFmpegPath = ffmpegPath;
+            FFmpegLoader.LoadFFmpeg();
+        }
+        catch (Exception e)
+        {
+            Logger.CurrentLogger.Critical(e);
+        }
 
         int pluginsLoaded;
         try
@@ -179,13 +211,11 @@ public class Init : MonoBehaviour
                 UITheme userTheme = UITheme.GetUIThemeByName(configUser.Theme);
                 if(userTheme != null)
                     userTheme.ApplyThemeToUI();
-                if(configUser.UseFacialTracking)
-                    QuickInvoke.InvokeActionOnMainThread(new Action(() =>
-                        FaceTrackingManager.Init(targetStreamingPath, user)));
+                if (configUser.UseFacialTracking)
+                    FaceTrackingManager.Init(targetStreamingPath, user);
             }
-            WebHandler.HandleLaunchArgs(args, CreateInstanceTemplate);
+            WebHandler.HandleLaunchArgs(args, CreateInstanceWindow);
         };
-        CurrentAvatar.Instance = ca;
         GetComponent<CoroutineRunner>()
             .Run(LocalPlayer.SafeSwitchScene(1, null,
                 s =>
@@ -216,6 +246,7 @@ public class Init : MonoBehaviour
             audioMixers[WorldGroup].SetFloat("volume", ConfigManager.SelectedConfigUser.WorldAudioVolume);
         }
         GameInstance.FocusedInstance?.Update();
+        DownloadTools.Check();
     }
     
     private void LateUpdate() => GameInstance.FocusedInstance?.LateUpdate();

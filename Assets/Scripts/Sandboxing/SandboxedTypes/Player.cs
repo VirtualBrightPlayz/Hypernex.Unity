@@ -42,6 +42,8 @@ namespace Hypernex.Sandboxing.SandboxedTypes
 
         private AvatarCreator lastAvatarCreator;
         private Avatar avatarCache;
+        
+        public bool IsHost => gameInstance != null && gameInstance.host != null && gameInstance.host.Id == user.Id;
 
         public Avatar Avatar
         {
@@ -59,6 +61,7 @@ namespace Hypernex.Sandboxing.SandboxedTypes
         public Pronouns Pronouns => user.Bio.Pronouns;
         public string Username => user.Username;
         public string DisplayName => string.IsNullOrEmpty(user.Bio.DisplayName) ? user.Username : user.Bio.DisplayName;
+        public bool IsVR => netPlayer != null ? netPlayer.lastVR : LocalPlayer.IsVR;
         
         public bool IsExtraneousObjectPresent(string key)
         {
@@ -189,6 +192,17 @@ namespace Hypernex.Sandboxing.SandboxedTypes
                 localPlayer.Dashboard.PositionDashboard(LocalPlayer.Instance);
             localPlayer.CharacterController.enabled = false;
             localPlayer.transform.position = NetworkConversionTools.float3ToVector3(position);
+            localPlayer.CharacterController.enabled = true;
+        }
+        
+        public void Rotate(float4 rotation)
+        {
+            if (localPlayer == null || sandboxRestriction != SandboxRestriction.Local)
+                return;
+            if(localPlayer.Dashboard.IsVisible)
+                localPlayer.Dashboard.PositionDashboard(LocalPlayer.Instance);
+            localPlayer.CharacterController.enabled = false;
+            localPlayer.transform.rotation = NetworkConversionTools.float4ToQuaternion(rotation);
             localPlayer.CharacterController.enabled = true;
         }
 

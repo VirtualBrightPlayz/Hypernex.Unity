@@ -1,8 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using Hypernex.CCK.Unity;
-using UnityEngine;
+using Hypernex.CCK.Unity.Internals;
 
 namespace Hypernex.Game.Video
 {
@@ -25,10 +24,10 @@ namespace Hypernex.Game.Video
         static VideoPlayerManager()
         {
             // Register Built-In VideoPlayers
+            Register<UnityVideoPlayer>(UnityVideoPlayer.CanBeUsed, UnityVideoPlayer.CanBeUsed);
 #if VLC
             Register<VLCVideoPlayer>(VLCVideoPlayer.CanBeUsed, VLCVideoPlayer.CanBeUsed);
 #endif
-            Register<UnityVideoPlayer>(UnityVideoPlayer.CanBeUsed, UnityVideoPlayer.CanBeUsed);
         }
 
         public static void Register<T>(Func<bool> canBeUsed, Func<Uri, bool> fileCanBePlayed) where T : IVideoPlayer
@@ -68,6 +67,7 @@ namespace Hypernex.Game.Video
             switch (ext)
             {
                 case ".m3u8":
+                case ".mpd":
                 case ".flv":
                     isStream = true;
                     break;

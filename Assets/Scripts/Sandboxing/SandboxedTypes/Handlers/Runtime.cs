@@ -11,13 +11,10 @@ namespace Hypernex.Sandboxing.SandboxedTypes.Handlers
 {
     public class Runtime
     {
-        internal Dictionary<object, SandboxFunc> OnFixedUpdates => new (onFixedUpdates);
         private Dictionary<object, SandboxFunc> onFixedUpdates = new ();
         
-        internal Dictionary<object, SandboxFunc> OnUpdates => new (onUpdates);
         private Dictionary<object, SandboxFunc> onUpdates = new ();
 
-        internal Dictionary<object, SandboxFunc> OnLateUpdates => new(onLateUpdates);
         private Dictionary<object, SandboxFunc> onLateUpdates = new();
         
         private Dictionary<object, SandboxFunc> onDisposals = new();
@@ -37,48 +34,59 @@ namespace Hypernex.Sandboxing.SandboxedTypes.Handlers
         {
             CoroutineHolder c = new CoroutineHolder();
             SandboxFunc sandboxFunc = SandboxFuncTools.TryConvert(s);
-            repeats.Add(sandboxFunc, c);
+            repeats.Add(s, c);
             c.Start(sandboxFunc, waitTime);
         }
+
+        public void RemoveRepeatSeconds(object s) => repeats.Remove(s);
 
         public void RunAfterSeconds(object s, float time) =>
             CoroutineRunner.Instance.StartCoroutine(_w(SandboxFuncTools.TryConvert(s), time));
 
-        internal void FixedUpdate() => OnFixedUpdates.Values.ToList().ForEach(x =>
+        internal void FixedUpdate()
         {
-            try
+            foreach (var x in onFixedUpdates)
             {
-                SandboxFuncTools.InvokeSandboxFunc(x);
+                try
+                {
+                    SandboxFuncTools.InvokeSandboxFunc(x.Value);
+                }
+                catch (Exception e)
+                {
+                    Logger.CurrentLogger.Error(e);
+                }
             }
-            catch (Exception e)
-            {
-                Logger.CurrentLogger.Error(e);
-            }
-        });
+        }
 
-        internal void Update() => OnUpdates.Values.ToList().ForEach(x =>
+        internal void Update()
         {
-            try
+            foreach (var x in onUpdates)
             {
-                SandboxFuncTools.InvokeSandboxFunc(x);
+                try
+                {
+                    SandboxFuncTools.InvokeSandboxFunc(x.Value);
+                }
+                catch (Exception e)
+                {
+                    Logger.CurrentLogger.Error(e);
+                }
             }
-            catch (Exception e)
-            {
-                Logger.CurrentLogger.Error(e);
-            }
-        });
+        }
         
-        internal void LateUpdate() => OnLateUpdates.Values.ToList().ForEach(x =>
+        internal void LateUpdate()
         {
-            try
+            foreach (var x in onLateUpdates)
             {
-                SandboxFuncTools.InvokeSandboxFunc(x);
+                try
+                {
+                    SandboxFuncTools.InvokeSandboxFunc(x.Value);
+                }
+                catch (Exception e)
+                {
+                    Logger.CurrentLogger.Error(e);
+                }
             }
-            catch (Exception e)
-            {
-                Logger.CurrentLogger.Error(e);
-            }
-        });
+        }
 
         private IEnumerator _w(SandboxFunc s, float t)
         {
@@ -88,10 +96,10 @@ namespace Hypernex.Sandboxing.SandboxedTypes.Handlers
         
         internal void Dispose()
         {
-            foreach (SandboxFunc onDisposalsFunc in onDisposals.Values)
+            foreach (var onDisposalsFunc in onDisposals)
                 try
                 {
-                    SandboxFuncTools.InvokeSandboxFunc(onDisposalsFunc);
+                    SandboxFuncTools.InvokeSandboxFunc(onDisposalsFunc.Value);
                 }
                 catch (Exception e)
                 {
@@ -101,13 +109,9 @@ namespace Hypernex.Sandboxing.SandboxedTypes.Handlers
             onUpdates.Clear();
             onLateUpdates.Clear();
             onDisposals.Clear();
-            List<CoroutineHolder> coroutineHolders = new List<CoroutineHolder>(repeats.Values);
-            for (int i = 0; i < coroutineHolders.Count; i++)
-            {
-                CoroutineHolder coroutineHolder = coroutineHolders[i];
+            foreach (CoroutineHolder coroutineHolder in repeats.Values)
                 coroutineHolder.Dispose();
-                repeats.Remove(repeats.ElementAt(i).Key);
-            }
+            repeats.Clear();
         }
 
         private class CoroutineHolder : IDisposable

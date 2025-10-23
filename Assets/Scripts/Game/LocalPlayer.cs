@@ -14,7 +14,8 @@ using Hypernex.Networking.Messages;
 using Hypernex.Player;
 using Hypernex.Tools;
 using Hypernex.UI;
-using Hypernex.UI.Templates;
+using Hypernex.UI.Components;
+using Hypernex.UI.Pages;
 using HypernexSharp.API;
 using HypernexSharp.API.APIResults;
 using HypernexSharp.APIObjects;
@@ -42,6 +43,8 @@ namespace Hypernex.Game
         public bool IsLocal => true;
         public string Id => APIPlayer.APIUser.Id;
         public AvatarCreator AvatarCreator => avatar;
+        public bool IsLoadingAvatar { get; private set; }
+        public float AvatarDownloadPercentage { get; private set; }
 
         public static bool IsVR { get; internal set; }
 
@@ -111,6 +114,23 @@ namespace Hypernex.Game
             }
             set => _gravity = value;
         }
+
+        private float _scale = 1f;
+        public float Scale
+        {
+            get => _scale;
+            set
+            {
+                float v = value;
+                transform.localScale = new Vector3(v, v, v);
+                Vector3 lp = transform.position;
+                float scaleUp = Dashboard.OpenedPosition.y + (v - Dashboard.OpenedScale.y);
+                float scaleDown = Dashboard.OpenedBounds.min.y + v/2;
+                transform.position = new Vector3(lp.x, v >= Dashboard.OpenedScale.y ? scaleUp : scaleDown, lp.z);
+                Dashboard.PositionDashboard(this);
+                _scale = v;
+            }
+        }
         
         public bool LockMovement { get; set; }
         public bool LockCamera { get; set; }
@@ -148,13 +168,15 @@ namespace Hypernex.Game
         public HandGetter RightHandGetter;
         public List<XRInteractorLineVisual> XRRays = new ();
         public VRInputListener VRInputListener;
+        public BaseInputModule DesktopInput;
+        public BaseInputModule VRInput;
         public Vector3 LowestPoint;
         public float LowestPointRespawnThreshold = 50f;
-        public CurrentAvatar CurrentAvatarDisplay;
         public LocalPlayerSyncController LocalPlayerSyncController;
         public DesktopFingerCurler.Left LeftDesktopCurler = new();
         public DesktopFingerCurler.Right RightDesktopCurler = new();
 
+        private HomePage homePage;
         private Denoiser denoiser;
         private float verticalVelocity;
         private float groundedTimer;
@@ -198,11 +220,11 @@ namespace Hypernex.Game
         // maybe we should cache an avatar instead? would improve speeds for HDD users, but increase memory usage
         public void RefreshAvatar(bool fromDash = false)
         {
-            if(!fromDash)
-                CurrentAvatarDisplay.RefreshAvatar(false);
-            transform.localScale = new Vector3(1, 1, 1);
+            Scale = 1f;
             Dashboard.PositionDashboard(this);
             OnAvatarDownload(avatarFile, avatarMeta);
+            if (homePage == null) homePage = UIPage.GetPage<HomePage>();
+            if(homePage.VisibleSubPage == 3) homePage.ShowCurrentAvatar();
         }
 
         public void Respawn(Scene? s = null)
@@ -225,9 +247,11 @@ namespace Hypernex.Game
                     searchSpawn = s.Value.GetRootGameObjects().FirstOrDefault(x => x.name.ToLower() == "spawn");
                 if (searchSpawn != null)
                     spawnPosition = searchSpawn.transform.position;
+                else if (GameInstance.FocusedInstance != null && GameInstance.FocusedInstance.World != null)
+                    spawnPosition = GameInstance.FocusedInstance.World.transform.position;
             }
             CharacterController.enabled = false;
-            transform.position = spawnPosition;
+            transform.position = spawnPosition.AddOneUp();
             if(Dashboard.IsVisible)
                 Dashboard.PositionDashboard(this);
             CharacterController.enabled = true;
@@ -295,8 +319,10 @@ namespace Hypernex.Game
                 }
                 avatarMeta = am;
                 avatar?.Dispose();
-                CurrentAvatarDisplay.SizeAvatar(1f);
-                avatar = new LocalAvatarCreator(this, a, IsVR || true, am);
+                // TODO: Avatar disiplay
+                //CurrentAvatarDisplay.SizeAvatar(1f);
+                IsLoadingAvatar = false;
+                avatar = new LocalAvatarCreator(this, a, IsVR, am);
                 avatarFile = file;
                 // Why this doesn't clear old transforms? I don't know.
                 SavedTransforms.Clear();
@@ -334,6 +360,9 @@ namespace Hypernex.Game
                 APIPlayer.APIObject.GetAvatarMeta(OnAvatarMeta, ConfigManager.SelectedConfigUser.CurrentAvatar);
                 return;
             }
+            OverlayNotification.Instance.CurrentLoadingAvatarMeta = r.result.Meta;
+            IsLoadingAvatar = true;
+            AvatarDownloadPercentage = 0;
             Builds build = r.result.Meta.Builds.FirstOrDefault(x => x.BuildPlatform == AssetBundleTools.Platform);
             if (build == null)
                 return;
@@ -354,7 +383,8 @@ namespace Hypernex.Game
                         if (fileMetaResult.success)
                             knownHash = fileMetaResult.result.FileMeta.Hash;
                         DownloadTools.DownloadFile(file, $"{r.result.Meta.Id}.hna",
-                            f => OnAvatarDownload(f, r.result.Meta), knownHash);
+                            f => OnAvatarDownload(f, r.result.Meta), knownHash,
+                            args => AvatarDownloadPercentage = args.ProgressPercentage / 100f);
                     }, r.result.Meta.OwnerId, build.FileId);
                 });
                 return;
@@ -364,8 +394,8 @@ namespace Hypernex.Game
                 string knownHash = String.Empty;
                 if (fileMetaResult.success)
                     knownHash = fileMetaResult.result.FileMeta.Hash;
-                DownloadTools.DownloadFile(file, $"{r.result.Meta.Id}.hna",
-                    f => OnAvatarDownload(f, r.result.Meta), knownHash);
+                DownloadTools.DownloadFile(file, $"{r.result.Meta.Id}.hna", f => OnAvatarDownload(f, r.result.Meta),
+                    knownHash, args => AvatarDownloadPercentage = args.ProgressPercentage / 100f);
             }, r.result.Meta.OwnerId, build.FileId);
         }
 
@@ -376,8 +406,6 @@ namespace Hypernex.Game
             APIPlayer.APIObject.GetAvatarMeta(OnAvatarMeta, ConfigManager.SelectedConfigUser.CurrentAvatar);
         }
 
-        private List<Coroutine> lastCoroutine = new();
-
         private void Start()
         {
             if (Instance != null)
@@ -387,7 +415,7 @@ namespace Hypernex.Game
                 return;
             }
             Instance = this;
-            LocalPlayerSyncController = new LocalPlayerSyncController(this, i => lastCoroutine.Add(StartCoroutine(i)));
+            LocalPlayerSyncController = new LocalPlayerSyncController(this, i => StartCoroutine(i));
             APIPlayer.OnUser += _ => LoadAvatar();
             CharacterController.minMoveDistance = 0;
             LockCamera = Dashboard.IsVisible;
@@ -441,10 +469,6 @@ namespace Hypernex.Game
                 {
                     if (avatarMeta.Publicity == AvatarPublicity.OwnerOnly)
                         ShareAvatarTokenToUserId(user, avatarMeta);
-                };
-                instance.OnDisconnect += () =>
-                {
-                    lastCoroutine.ForEach(StopCoroutine);
                 };
                 if (avatarMeta == null) return;
                 if (avatarMeta.Publicity == AvatarPublicity.OwnerOnly)
@@ -690,8 +714,10 @@ namespace Hypernex.Game
                     x.lineWidth = 0.01f;
                 x.enabled = vr;
             });
+            DesktopInput.enabled = !vr;
+            VRInput.enabled = vr;
             CursorTools.ToggleMouseLock(vr || LockCamera);
-            CursorTools.ToggleMouseVisibility(!vr);
+            CursorTools.ToggleMouseVisibility(!vr || LockCamera);
             groundedPlayer = CharacterController.isGrounded;
             if (!LockMovement)
             {
@@ -799,7 +825,6 @@ namespace Hypernex.Game
                 if(binding.GetType() == typeof(Bindings.Mouse))
                     ((Bindings.Mouse)binding).Dispose();
             }
-            lastCoroutine.ForEach(StopCoroutine);
             denoiser?.Dispose();
             LocalPlayerSyncController?.Dispose();
         }

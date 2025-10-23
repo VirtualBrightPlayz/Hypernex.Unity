@@ -1,14 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using Hypernex.CCK.Unity;
+using Hypernex.CCK.Unity.Descriptors;
+using Hypernex.CCK.Unity.Interaction;
 using Hypernex.CCK.Unity.Internals;
 using Hypernex.Configuration;
-using Hypernex.Game.Audio;
-using Hypernex.Networking.Messages;
 using Hypernex.Networking.Messages.Data;
 using Hypernex.Tools;
-using Hypernex.UIActions;
 using HypernexSharp.APIObjects;
 #if FINAL_IK
 using RootMotion.FinalIK;
@@ -23,10 +20,10 @@ namespace Hypernex.Game.Avatar
     {
         private NetPlayer netPlayer;
 
-        public NetAvatarCreator(NetPlayer np, CCK.Unity.Avatar a, AvatarMeta avatarMeta, bool isVR)
+        public NetAvatarCreator(NetPlayer np, CCK.Unity.Assets.Avatar a, AvatarMeta avatarMeta, bool isVR)
         {
             netPlayer = np;
-            a = Object.Instantiate(a.gameObject).GetComponent<CCK.Unity.Avatar>();
+            a = Object.Instantiate(a.gameObject).GetComponent<CCK.Unity.Assets.Avatar>();
             Avatar = a;
             SceneManager.MoveGameObjectToScene(a.gameObject, np.gameObject.scene);
             MainAnimator = a.GetComponent<Animator>();
@@ -42,7 +39,9 @@ namespace Hypernex.Game.Avatar
             audioSource = VoiceAlign.PrepareNetVoice();
             if(np.nameplateTemplate != null)
                 np.nameplateTemplate.OnNewAvatar(this);
+            Vector3 beforeScale = a.transform.localScale;
             a.transform.SetParent(np.transform);
+            a.transform.localScale = beforeScale;
             a.gameObject.name = "avatar";
             AlignAvatar(isVR);
             if (isVR)
@@ -64,11 +63,12 @@ namespace Hypernex.Game.Avatar
             lipSyncContext.enableTouchInput = false;
             lipSyncContext.audioLoopback = true;
             morphTargets.Clear();
-            foreach (KeyValuePair<Viseme, BlendshapeDescriptor> avatarVisemeRenderer in Avatar.VisemesDict)
+            for (int i = 0; i < (int) Viseme.Max; i++)
             {
-                OVRLipSyncContextMorphTarget morphTarget =
-                    GetMorphTargetBySkinnedMeshRenderer(avatarVisemeRenderer.Value.SkinnedMeshRenderer);
-                SetVisemeAsBlendshape(ref morphTarget, avatarVisemeRenderer.Key, avatarVisemeRenderer.Value);
+                BlendshapeDescriptor descriptor = BlendshapeDescriptor.GetDescriptor(VisemeRenderers, Avatar.VisemesDict, i);
+                if (descriptor == null) continue;
+                var morphTarget = GetMorphTargetBySkinnedMeshRenderer(descriptor.SkinnedMeshRenderer);
+                SetVisemeAsBlendshape(ref morphTarget, (Viseme) i, descriptor);
             }
         }
 

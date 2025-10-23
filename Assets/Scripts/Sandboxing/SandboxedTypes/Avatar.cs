@@ -1,11 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Hypernex.CCK.Unity;
-using Hypernex.Configuration;
+using Hypernex.CCK.Unity.Internals;
 using Hypernex.Game;
 using Hypernex.Game.Avatar;
-using Hypernex.Networking.Messages.Data;
 using Hypernex.Player;
 using Hypernex.Tools;
 using Hypernex.UI.Templates;
@@ -71,7 +69,6 @@ namespace Hypernex.Sandboxing.SandboxedTypes
 
         public bool IsLocalAvatar => isLocalAvatar;
         public string OwnerId => isLocalAvatar ? netPlayer.UserId : APIPlayer.APIUser.Id;
-        public bool IsHost => gameInstance != null && gameInstance.host.Id == OwnerId;
 
         public Item GetAvatarObject(HumanBodyBones humanBodyBones)
         {
@@ -133,11 +130,11 @@ namespace Hypernex.Sandboxing.SandboxedTypes
             if (!isLocalAvatar || gameInstance == null || (gameInstance.World != null && !gameInstance.World.AllowScaling &&
                                    sandboxRestriction != SandboxRestriction.Local))
                 return;
-            if (LocalPlayer.Instance == null || CurrentAvatar.Instance == null)
+            if (LocalPlayer.Instance == null)
                 return;
             if(LocalPlayer.Instance.Dashboard.IsVisible)
                 LocalPlayer.Instance.Dashboard.ToggleDashboard(LocalPlayer.Instance);
-            CurrentAvatar.Instance.SizeAvatar(scale);
+            LocalPlayer.Instance.Scale = scale;
             if(!LocalPlayer.Instance.Dashboard.IsVisible)
                 LocalPlayer.Instance.Dashboard.ToggleDashboard(LocalPlayer.Instance);
         }

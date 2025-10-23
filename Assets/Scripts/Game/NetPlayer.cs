@@ -3,7 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Hypernex.CCK;
-using Hypernex.CCK.Unity;
+using Hypernex.CCK.Unity.Assets;
+using Hypernex.CCK.Unity.Internals;
 using Hypernex.Configuration;
 using Hypernex.Databasing;
 using Hypernex.Databasing.Objects;
@@ -37,7 +38,7 @@ namespace Hypernex.Game
         public PlayerOverrides PlayerOverrides;
 
         private PlayerUpdate lastPlayerUpdate;
-        private bool lastVR;
+        internal bool lastVR;
         private string lastVRIKjson;
         private VRIKCalibrator.CalibrationData lastCalibrationData;
         private string CalibratedAvatarId;
@@ -56,6 +57,8 @@ namespace Hypernex.Game
         public string Id => UserId;
         public bool IsLocal => false;
         public AvatarCreator AvatarCreator => Avatar;
+        public bool IsLoadingAvatar => Avatar == null;
+        public float AvatarDownloadPercentage { get; private set; }
 
         public float volume
         {
@@ -132,10 +135,10 @@ namespace Hypernex.Game
             if (stream == Stream.Null)
             {
                 if (avatarFileToken == null)
-                    APIPlayer.APIObject.GetFile(OnAvatarDownload, avatarMeta.OwnerId, avatarBuild.FileId);
+                    APIPlayer.APIObject.GetFile(OnAvatarDownload, avatarMeta.OwnerId, avatarBuild.FileId, i => AvatarDownloadPercentage = i/100f);
                 else
                     APIPlayer.APIObject.GetFile(OnAvatarDownload, avatarMeta.OwnerId, avatarBuild.FileId,
-                        avatarFileToken.avatarToken);
+                        avatarFileToken.avatarToken, i => AvatarDownloadPercentage = i/100f);
                 return;
             }
 
@@ -157,15 +160,12 @@ namespace Hypernex.Game
                         if ((ConfigManager.SelectedConfigUser?.GetAllowedAvatarComponents(UserId) ??
                              new AllowedAvatarComponent()).Scripting)
                         {
-                            foreach (NexboxScript localAvatarScript in Avatar.Avatar.LocalAvatarScripts)
-                                Avatar.localAvatarSandboxes.Add(new Sandbox(localAvatarScript, transform,
-                                    a.gameObject));
                             foreach (LocalScript ls in Avatar.Avatar.gameObject.GetComponentsInChildren<LocalScript>())
-                                Avatar.localAvatarSandboxes.Add(new Sandbox(ls.NexboxScript, transform, ls.gameObject));
+                                Avatar.localAvatarSandboxes.Add(new Sandbox(ls.Script, transform, ls.gameObject));
                         }
                         if (nameplateTemplate != null)
                             nameplateTemplate.transform.SetLocalPositionAndRotation(
-                                new Vector3(0, transform.localScale.y + 0.9f, 0),
+                                new Vector3(0, transform.localScale.y + 0.6f, 0),
                                 Quaternion.identity);
                     }));
                 }
@@ -183,10 +183,8 @@ namespace Hypernex.Game
                         return;
                     Avatar?.Dispose();
                     Avatar = new NetAvatarCreator(this, a, avatarMeta, lastPlayerUpdate.IsPlayerVR);
-                    foreach (NexboxScript localAvatarScript in Avatar.Avatar.LocalAvatarScripts)
-                        Avatar.localAvatarSandboxes.Add(new Sandbox(localAvatarScript, transform, a.gameObject));
                     foreach (LocalScript ls in Avatar.Avatar.gameObject.GetComponentsInChildren<LocalScript>())
-                        Avatar.localAvatarSandboxes.Add(new Sandbox(ls.NexboxScript, transform, ls.gameObject));
+                        Avatar.localAvatarSandboxes.Add(new Sandbox(ls.Script, transform, ls.gameObject));
                     if (nameplateTemplate != null)
                         nameplateTemplate.transform.SetLocalPositionAndRotation(
                             new Vector3(0, transform.localScale.y + 0.9f, 0),
@@ -241,7 +239,8 @@ namespace Hypernex.Game
                             else
                             {
                                 DownloadTools.DownloadFile(file, $"{result.result.Meta.Id}.hna",
-                                    f => OnAvatarDownload(f), fmr.result.FileMeta.Hash);
+                                    f => OnAvatarDownload(f), fmr.result.FileMeta.Hash,
+                                    i => AvatarDownloadPercentage = i.ProgressPercentage / 100f);
                             }
                         }, result.result.Meta.OwnerId, b.FileId);
                     }
@@ -256,7 +255,8 @@ namespace Hypernex.Game
                             else
                             {
                                 DownloadTools.DownloadFile(file, $"{result.result.Meta.Id}.hna",
-                                    f => OnAvatarDownload(f), fmr.result.FileMeta.Hash);
+                                    f => OnAvatarDownload(f), fmr.result.FileMeta.Hash,
+                                    i => AvatarDownloadPercentage = i.ProgressPercentage / 100f);
                             }
                         }, result.result.Meta.OwnerId, b.FileId);
                     }
@@ -275,9 +275,9 @@ namespace Hypernex.Game
             {
                 if (waitingForAvatarToken && token.fromUserId == UserId && token.avatarId == AvatarId)
                 {
-                    waitingForAvatarToken = false;
                     avatarFileToken = token;
-                    string file = $"{APIPlayer.APIObject.Settings.APIURL}file/{avatarMeta.OwnerId}/{avatarBuild.FileId}";
+                    waitingForAvatarToken = false;
+                    string file = $"{APIPlayer.APIObject.Settings.APIURL}file/{avatarMeta.OwnerId}/{avatarBuild.FileId}/{token.avatarToken}";
                     APIPlayer.APIObject.GetFileMeta(fmr =>
                     {
                         if (!fmr.success)
@@ -285,8 +285,8 @@ namespace Hypernex.Game
                                 avatarFileToken.avatarToken);
                         else
                         {
-                            DownloadTools.DownloadFile(file, $"{avatarMeta.Id}.hna",
-                                f => OnAvatarDownload(f), fmr.result.FileMeta.Hash);
+                            DownloadTools.DownloadFile(file, $"{avatarMeta.Id}.hna", f => OnAvatarDownload(f),
+                                fmr.result.FileMeta.Hash, i => AvatarDownloadPercentage = i.ProgressPercentage / 100f);
                         }
                     }, avatarMeta.OwnerId, avatarBuild.FileId);
                 }
@@ -324,9 +324,14 @@ namespace Hypernex.Game
                                                                          lastPlayerUpdate.AvatarId != AvatarId))
                 {
                     AvatarId = lastPlayerUpdate.AvatarId;
-                    APIPlayer.APIObject.GetAvatarMeta(OnAvatar, AvatarId);
                     Avatar?.Dispose();
                     Avatar = null;
+                    avatarFileToken = null;
+                    avatarMeta = null;
+                    avatarBuild = null;
+                    waitingForAvatarToken = false;
+                    AvatarDownloadPercentage = 0;
+                    APIPlayer.APIObject.GetAvatarMeta(OnAvatar, AvatarId);
                 }
                 if (Avatar != null && Avatar.Avatar.transform.parent == transform)
                 {
@@ -469,7 +474,7 @@ namespace Hypernex.Game
                     c.Position = NetworkConversionTools.float3ToVector3(networkedObject.Position);
                     c.Rotation = Quaternion.Euler(new Vector3(networkedObject.Rotation.x,
                         networkedObject.Rotation.y, networkedObject.Rotation.z));
-                    c.Scale = new Vector3(0.01f, 0.01f, 0.01f);
+                    c.Scale = Vector3.one;
                 }
                 if (keyValuePair.Key > (int) CoreBone.Max) continue;
                 CoreBone coreBone = (CoreBone) keyValuePair.Key;

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
-using Hypernex.CCK.Unity;
+using Hypernex.CCK.Unity.Descriptors;
+using Hypernex.CCK.Unity.Internals;
 using Hypernex.Game.Video;
 using Hypernex.Tools;
 
@@ -25,7 +26,6 @@ namespace Hypernex.Sandboxing.SandboxedTypes.Components
             if (videoPlayerDescriptor == null) throw new Exception("No VideoPlayerDescriptor found on Item at " + i.Path);
         }
 
-        public bool IsValid() => GetVideoPlayer() != null;
         public bool IsPlaying() => GetVideoPlayer()?.IsPlaying ?? false;
         public bool IsMuted() => GetVideoPlayer()?.Muted ?? false;
         public bool IsLooping() => GetVideoPlayer()?.Looping ?? false;
@@ -113,29 +113,28 @@ namespace Hypernex.Sandboxing.SandboxedTypes.Components
             return videoPlayer.Length;
         }
 
-        public void LoadFromCobalt(CobaltDownload cobaltDownload)
+        public void LoadFromStream(Streaming.StreamDownload streamDownload)
         {
             if(read || videoPlayerDescriptor == null)
                 return;
-            if (cobaltDownload.isStream)
+            if (streamDownload.isStream)
             {
-                IVideoPlayer videoPlayer = videoPlayerDescriptor.Replace(
-                    VideoPlayerManager.GetVideoPlayerType(new Uri(cobaltDownload.PathToFile)) ??
-                    VideoPlayerManager.DefaultVideoPlayerType);
+                IVideoPlayer videoPlayer =
+                    videoPlayerDescriptor.Replace(
+                        VideoPlayerManager.GetVideoPlayerType(new Uri(streamDownload.pathToFile)));
                 if (videoPlayer == null)
                     return;
-                videoPlayer.Source = cobaltDownload.PathToFile;
+                videoPlayer.Source = streamDownload.pathToFile;
             }
             else
             {
-                if (!File.Exists(cobaltDownload.PathToFile))
+                if (!File.Exists(streamDownload.pathToFile))
                     return;
-                string filePath = "file:///" + cobaltDownload.PathToFile;
-                IVideoPlayer videoPlayer = videoPlayerDescriptor.Replace(
-                    VideoPlayerManager.GetVideoPlayerType(new Uri(filePath)) ??
-                    VideoPlayerManager.DefaultVideoPlayerType);
+                IVideoPlayer videoPlayer =
+                    videoPlayerDescriptor.Replace(VideoPlayerManager.GetVideoPlayerType(new Uri(streamDownload.pathToFile)));
                 if (videoPlayer == null)
                     return;
+                string filePath = videoPlayer.GetFileHeader() + streamDownload.pathToFile;
                 videoPlayer.Source = filePath;
             }
         }

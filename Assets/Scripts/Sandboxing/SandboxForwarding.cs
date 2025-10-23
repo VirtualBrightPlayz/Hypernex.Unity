@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using CobaltSharp;
 using Hypernex.Game;
 using Hypernex.Networking.Messages.Data;
 using Hypernex.Sandboxing.SandboxedTypes;
@@ -13,7 +12,6 @@ using Nexbox;
 using UnityEngine;
 using Avatar = Hypernex.Sandboxing.SandboxedTypes.Avatar;
 using Bounds = Hypernex.Sandboxing.SandboxedTypes.Bounds;
-using Cobalt = Hypernex.Sandboxing.SandboxedTypes.Cobalt;
 using Collider = Hypernex.Sandboxing.SandboxedTypes.Collider;
 using Collision = Hypernex.Sandboxing.SandboxedTypes.Collision;
 using Color = Hypernex.Sandboxing.SandboxedTypes.Color;
@@ -21,6 +19,10 @@ using Physics = Hypernex.Sandboxing.SandboxedTypes.Handlers.Physics;
 using Ray = Hypernex.Sandboxing.SandboxedTypes.Ray;
 using RaycastHit = Hypernex.Sandboxing.SandboxedTypes.RaycastHit;
 using Time = Hypernex.Sandboxing.SandboxedTypes.Time;
+using Light = Hypernex.Sandboxing.SandboxedTypes.Components.Light;
+using Mesh = Hypernex.Sandboxing.SandboxedTypes.Mesh;
+using Renderer = Hypernex.Sandboxing.SandboxedTypes.Components.Renderer;
+using Texture = Hypernex.Sandboxing.SandboxedTypes.Texture;
 
 namespace Hypernex.Sandboxing
 {
@@ -74,6 +76,19 @@ namespace Hypernex.Sandboxing
             ["Colliders"] = typeof(Colliders),
             ["PenetrationResult"] = typeof(PenetrationResult),
             ["Physics"] = typeof(Physics),
+            ["Light"] = typeof(Light),
+            ["LightShadows"] = typeof(LightShadows),
+            ["LightType"] = typeof(LightType),
+            ["NavMesh"] = typeof(NavMesh),
+            ["NavAgent"] = typeof(NavAgent),
+            ["NavSurface"] = typeof(NavSurface),
+            ["NavMeshHit"] = typeof(NavMeshHit),
+            ["NavPath"] = typeof(NavPath),
+            ["NavMeshPathStatus"] = typeof(UnityEngine.AI.NavMeshPathStatus),
+            ["Animator"] = typeof(SandboxedTypes.Components.Animator),
+            ["Animation"] = typeof(SandboxedTypes.Components.Animation),
+            ["AnimState"] = typeof(AnimState),
+            ["Texture"] = typeof(Texture)
         });
 
         private static readonly ReadOnlyDictionary<string, Type> ForwardingLocalAvatarTypes = new(
@@ -84,15 +99,12 @@ namespace Hypernex.Sandboxing
         private static readonly ReadOnlyDictionary<string, Type> ForwardingLocalTypes = new(new Dictionary<string, Type>
         {
             ["ClientNetworkEvent"] = typeof(ClientNetworkEvent),
-            ["GetMedia"] = typeof(GetMedia),
-            ["VideoCodec"] = typeof(VideoCodec),
-            ["AudioFormat"] = typeof(AudioFormat),
-            ["VideoQuality"] = typeof(VideoQuality),
-            ["Cobalt"] = typeof(Cobalt),
-            ["CobaltOption"] = typeof(CobaltOption),
-            ["CobaltOptions"] = typeof(CobaltOptions),
-            ["CobaltDownload"] = typeof(CobaltDownload),
-            ["PhysicsBody"] = typeof(PhysicsBody)
+            ["Streaming"] = typeof(Streaming),
+            ["StreamDownloadOptions"] = typeof(Streaming.StreamDownloadOptions),
+            ["StreamDownload"] = typeof(Streaming.StreamDownload),
+            ["PhysicsBody"] = typeof(PhysicsBody),
+            ["Mesh"] = typeof(Mesh),
+            ["Renderer"] = typeof(Renderer),
         }.Union(BaseForwardingTypes).ToDictionary(pair => pair.Key, pair => pair.Value));
 
         public static InstanceContainer Forward(GameObject attached, IInterpreter interpreter, SandboxRestriction restriction,
