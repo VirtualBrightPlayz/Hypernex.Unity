@@ -216,6 +216,9 @@ namespace Hypernex.Game.Avatar
             }
 #if FINAL_IK
             if (vrik != null && vrik.solver.initiated && (!XRTracker.CanFBT || MainAnimator.avatar == null) && !Calibrated)
+#else
+            if (vrik != null && (!XRTracker.CanFBT || MainAnimator.avatar == null) && !Calibrated)
+#endif
             {
                 LeftHandReference.ClearChildren(true);
                 RightHandReference.ClearChildren(true);
@@ -275,7 +278,6 @@ namespace Hypernex.Game.Avatar
                 MainAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
             }
             else if (vrik == null)
-#endif
             {
                 MainAnimator.runtimeAnimatorController = animatorController;
                 MainAnimator.cullingMode = AnimatorCullingMode.AlwaysAnimate;

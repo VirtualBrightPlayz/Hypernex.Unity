@@ -2,15 +2,8 @@ using System;
 using DitzelGames.FastIK;
 using UnityEngine;
 
-public class IKSystem2 : MonoBehaviour
+public class IKSystem3 : MonoBehaviour
 {
-    public enum FootIkState : int
-    {
-        Idle,
-        Moving,
-        Timeout,
-    }
-
     [Serializable]
     public struct IKData
     {
@@ -24,31 +17,34 @@ public class IKSystem2 : MonoBehaviour
     [Range(0f, 1f)]
     public float SnapBackStrength = 0.5f;
     public bool handIk = true;
-    public bool hipIk = true;
     public bool footIk = true;
     public bool moveFeet = true;
 
     public float minStepHeight = 0.1f;
+    public float maxStepHeight = 0.2f;
+
+    public float minStepLength = -0.5f;
+    public float maxStepLength = 0.5f;
+
+    public float loopSize = 1f;
 
     [Min(0f)]
-    public float minStepDistance = 0.1f;
+    public float stepDistance = 0.2f;
     [Min(0f)]
-    public float maxStepDistance = 0.25f;
+    public float reachDistance = 0.2f;
     [Min(0.01f)]
     public float footMoveSpeed = 1f;
-    public AnimationCurve footAnimCurve;
-    public float timeoutTime = 0.25f;
+    public AnimationCurve velCurve;
 
     [Header("Debug area")]
-    public IKData headData;
     public IKData leftHandData;
     public IKData rightHandData;
     public IKData leftFootData;
     public IKData rightFootData;
-    public Transform hipTarget;
 
-    public Vector3 direction;
     public Transform head;
+    public Transform headTarget;
+    public Vector3 direction;
     public Transform hips;
     public Transform leftHand;
     public Transform rightHand;
@@ -56,21 +52,11 @@ public class IKSystem2 : MonoBehaviour
     public Transform rightFoot;
 
     public float footDistance;
-    public float leftFootRest;
-    public float rightFootRest;
+
+    public Vector3 leftFootPos;
+    public Vector3 rightFootPos;
 
     public Vector3 hipsPos;
-
-    public Vector3 leftFootCurrentPos;
-    public Vector3 leftFootSourcePos;
-    public Vector3 leftFootTargetPos;
-    public FootIkState leftState = FootIkState.Idle;
-    public float leftTimer;
-    public Vector3 rightFootCurrentPos;
-    public Vector3 rightFootSourcePos;
-    public Vector3 rightFootTargetPos;
-    public FootIkState rightState = FootIkState.Idle;
-    public float rightTimer;
 
     private void OnEnable()
     {
@@ -92,150 +78,12 @@ public class IKSystem2 : MonoBehaviour
             leftFootData.ik.enabled = footIk;
         if (rightFootData.ik)
             rightFootData.ik.enabled = footIk;
-        if (hipTarget && hips)
+        if (hips && head && headTarget)
         {
-            hips.position = hipTarget.position;
-            hips.rotation = hipTarget.rotation;
+            hips.localPosition = hips.parent.InverseTransformPoint(headTarget.position) - hips.parent.InverseTransformVector(direction);
+            head.position = headTarget.position;
+            head.rotation = headTarget.rotation;
         }
-        else if (hips && head && headData.target && hipIk)
-        {
-            hips.localPosition = hips.parent.InverseTransformPoint(headData.target.position) - hips.parent.InverseTransformVector(direction);
-            head.position = headData.target.position;
-            head.rotation = headData.target.rotation;
-        }
-
-        Vector3 vel = hips.position - hipsPos;
-
-        // if (moveFeet)
-        {
-            // left
-            switch (leftState)
-            {
-                default:
-                case FootIkState.Idle:
-                    if (leftFootData.ik.IsOutOfReach || IsFootMoveTime(PlaceLeftFoot(Vector3.zero), leftFootCurrentPos, maxStepDistance))
-                    {
-                        leftFootSourcePos = leftFootCurrentPos;
-                        leftFootTargetPos = PlaceLeftFoot(vel);
-                        leftState = FootIkState.Moving;
-                        leftTimer = 0f;
-                    }
-                    break;
-                case FootIkState.Moving:
-                    if (LerpFoot(ref leftFootCurrentPos, leftFootSourcePos, leftFootTargetPos, ref leftTimer))
-                    {
-                        leftState = FootIkState.Timeout;
-                        leftTimer = 0f;
-                    }
-                    break;
-                case FootIkState.Timeout:
-                    leftTimer += Time.deltaTime;
-                    if (leftTimer >= timeoutTime)
-                    {
-                        leftState = FootIkState.Idle;
-                        leftTimer = 0f;
-                    }
-                    break;
-            }
-            if (moveFeet)
-                leftFootData.target.position = leftFootCurrentPos;
-
-            // right
-            switch (rightState)
-            {
-                default:
-                case FootIkState.Idle:
-                    if (rightFootData.ik.IsOutOfReach || IsFootMoveTime(PlaceRightFoot(Vector3.zero), rightFootCurrentPos, maxStepDistance))
-                    {
-                        rightFootSourcePos = rightFootCurrentPos;
-                        rightFootTargetPos = PlaceRightFoot(vel);
-                        rightState = FootIkState.Moving;
-                        rightTimer = 0f;
-                    }
-                    break;
-                case FootIkState.Moving:
-                    if (leftState != FootIkState.Moving && LerpFoot(ref rightFootCurrentPos, rightFootSourcePos, rightFootTargetPos, ref rightTimer))
-                    {
-                        rightState = FootIkState.Timeout;
-                        rightTimer = 0f;
-                    }
-                    break;
-                case FootIkState.Timeout:
-                    rightTimer += Time.deltaTime;
-                    if (rightTimer >= timeoutTime)
-                    {
-                        rightState = FootIkState.Idle;
-                        rightTimer = 0f;
-                    }
-                    break;
-            }
-            if (moveFeet)
-                rightFootData.target.position = rightFootCurrentPos;
-        }
-
-        if (hips)
-            hipsPos = hips.position;
-    }
-
-    public Vector3 PlaceLeftFoot(Vector3 vel)
-    {
-        return BaseToWorld(SnapBy2(WorldToBase(humanoid.transform.position), minStepDistance)) - humanoid.transform.right * footDistance * 0.5f + vel;
-    }
-
-    public Vector3 PlaceRightFoot(Vector3 vel)
-    {
-        return BaseToWorld(SnapBy2(WorldToBase(humanoid.transform.position), minStepDistance)) + humanoid.transform.right * footDistance * 0.5f + vel;
-    }
-
-    public static Vector2 SnapBy2(Vector2 input, float interval)
-    {
-        float x = Mathf.Round(input.x / interval) * interval;
-        float y = Mathf.Round(input.y / interval) * interval;
-        return new Vector2(x, y);
-    }
-
-    public static Vector3 SnapBy3(Vector3 input, float interval)
-    {
-        float x = Mathf.Round(input.x / interval) * interval;
-        float y = Mathf.Round(input.y / interval) * interval;
-        float z = Mathf.Round(input.z / interval) * interval;
-        return new Vector3(x, y, z);
-    }
-
-    public Vector2 WorldToBase(Vector3 input)
-    {
-        return new Vector2(input.x, input.z);
-    }
-
-    public Vector3 BaseToWorld(Vector2 input)
-    {
-        return new Vector3(input.x, humanoid.transform.position.y, input.y);
-    }
-
-    public bool CheckFootDot()
-    {
-        return Mathf.Abs(Vector3.Dot(leftFootCurrentPos - humanoid.transform.position, rightFootCurrentPos - humanoid.transform.position)) > 0.25;
-    }
-
-    public bool IsFootMoveTime(Vector3 target, Vector3 current, float maxDist = 0.25f)
-    {
-        return (WorldToBase(target) - WorldToBase(current)).sqrMagnitude > maxDist * maxDist;
-        // return (new Vector2(foot.x, foot.z) - new Vector2(hips.x, hips.z)).sqrMagnitude < maxDist * maxDist;
-    }
-
-    public bool LerpFoot(ref Vector3 current, Vector3 source, Vector3 target, ref float t)
-    {
-        t += footMoveSpeed * Time.deltaTime;
-        Vector3 output = BaseToWorld(Vector2.Lerp(WorldToBase(source), WorldToBase(target), t));
-        output.y += footAnimCurve.Evaluate(t) * minStepHeight;
-        current = output;
-        return t >= 1f;
-    }
-
-    public bool LerpFootOld(ref Vector3 current, Vector3 target, float delta)
-    {
-        current = Vector3.MoveTowards(current, target, delta);
-        return (current - target).sqrMagnitude < 0.01f * 0.01f;
     }
 
     public int GetChainLength(Transform parent, Transform child, int iter = 0)
@@ -253,8 +101,6 @@ public class IKSystem2 : MonoBehaviour
 
     public void Init()
     {
-        leftTimer = 0f;
-        rightTimer = 0f;
         OnDisable();
         if (humanoid && humanoid.avatar && humanoid.avatar.isHuman)
         {
@@ -267,27 +113,13 @@ public class IKSystem2 : MonoBehaviour
             direction = humanoid.GetBoneTransform(HumanBodyBones.Head).position - humanoid.GetBoneTransform(HumanBodyBones.Hips).position;
             float scl = direction.magnitude;
             footDistance = Vector3.Distance(leftFoot.position, rightFoot.position);
-            leftFootRest = Vector3.Distance(hips.position, leftFoot.position);
-            rightFootRest = Vector3.Distance(hips.position, rightFoot.position);
 
             // hips and head
             {
-                headData.target = new GameObject("Head Target").transform;
-                headData.target.SetParent(transform);
-                headData.target.position = head.position;
-                headData.target.rotation = head.rotation;
-                headData.pole = new GameObject("Head Pole").transform;
-                headData.pole.SetParent(transform);
-                headData.pole.position = head.position - transform.forward * scl;
-
-                FastIKFabric ik = head.gameObject.AddComponent<FastIKFabric>();
-                ik.Target = headData.target;
-                ik.Pole = headData.pole;
-                ik.ChainLength = GetChainLength(hips, head);
-                ik.SnapBackStrength = SnapBackStrength;
-                ik.Init();
-                headData.ik = ik;
-
+                headTarget = new GameObject("Head Target").transform;
+                headTarget.SetParent(transform);
+                headTarget.position = head.position;
+                headTarget.rotation = head.rotation;
                 hipsPos = hips.position;
             }
 
@@ -308,6 +140,7 @@ public class IKSystem2 : MonoBehaviour
                     ik.ChainLength = 3;
                 // else
                     ik.ChainLength = 2;
+                ik.ChainLength = GetChainLength(humanoid.GetBoneTransform(HumanBodyBones.LeftShoulder), leftHand);
                 ik.SnapBackStrength = SnapBackStrength;
                 ik.Init();
                 leftHandData.ik = ik;
@@ -329,6 +162,7 @@ public class IKSystem2 : MonoBehaviour
                     ik.ChainLength = 3;
                 // else
                     ik.ChainLength = 2;
+                ik.ChainLength = GetChainLength(humanoid.GetBoneTransform(HumanBodyBones.RightShoulder), rightHand);
                 ik.SnapBackStrength = SnapBackStrength;
                 ik.Init();
                 rightHandData.ik = ik;
@@ -348,9 +182,11 @@ public class IKSystem2 : MonoBehaviour
                 ik.Target = leftFootData.target;
                 ik.Pole = leftFootData.pole;
                 ik.ChainLength = 2;
+                ik.ChainLength = GetChainLength(humanoid.GetBoneTransform(HumanBodyBones.LeftUpperLeg), leftFoot);
                 ik.SnapBackStrength = SnapBackStrength;
                 ik.Init();
                 leftFootData.ik = ik;
+                leftFootPos = leftFoot.position;
             }
             // right foot
             {
@@ -366,9 +202,11 @@ public class IKSystem2 : MonoBehaviour
                 ik.Target = rightFootData.target;
                 ik.Pole = rightFootData.pole;
                 ik.ChainLength = 2;
+                ik.ChainLength = GetChainLength(humanoid.GetBoneTransform(HumanBodyBones.RightUpperLeg), rightFoot);
                 ik.SnapBackStrength = SnapBackStrength;
                 ik.Init();
                 rightFootData.ik = ik;
+                rightFootPos = rightFoot.position;
             }
         }
     }

@@ -205,45 +205,8 @@ namespace Hypernex.Game.Avatar
             Avatar.transform.localRotation = Quaternion.identity;
         }
 
-        protected IKSystem2 AddVRIK(GameObject avatar)
-        {
-            IKSystem2 v = avatar.AddComponent<IKSystem2>();
-            v.humanoid = MainAnimator;
-            v.minStepHeight = 0.1f;
-            v.minStepDistance = 0.1f;
-            v.footMoveSpeed = 5f;
-            v.timeoutTime = 0.25f;
-            v.footAnimCurve = new AnimationCurve();
-            v.footAnimCurve.AddKey(0f, 0f);
-            v.footAnimCurve.AddKey(0.5f, 1f);
-            v.footAnimCurve.AddKey(1f, 0f);
-            v.Init();
-            v.maxStepDistance = v.footDistance;
-            v.handIk = false;
-            v.hipIk = false;
-            return v;
-        }
-
-        protected IKSystem AddVRIK2(GameObject avatar)
-        {
-            IKSystem v = avatar.AddComponent<IKSystem>();
-            v.humanoid = MainAnimator;
-            v.minStepHeight = 0.1f;
-            v.stepDistance = 0.1f;
-            v.footMoveSpeed = 5f;
-            // v.timeoutTime = 0.25f;
-            // v.footAnimCurve = new AnimationCurve();
-            // v.footAnimCurve.AddKey(0f, 0f);
-            // v.footAnimCurve.AddKey(0.5f, 1f);
-            // v.footAnimCurve.AddKey(1f, 0f);
-            v.Init();
-            // v.maxStepDistance = v.footDistance;
-            v.handIk = false;
-            // v.hipIk = false;
-            return v;
-        }
-
 #if FINAL_IK
+
         private void SetCalibrationMeta(VRIK v, bool isFBT)
         {
             v.solver.scale = Avatar.transform.localScale.y;
@@ -324,6 +287,108 @@ namespace Hypernex.Game.Avatar
         {
             vrik.solver.locomotion.weight = isMoving || fbt ? 0f : 1f;
         }
+
+#else
+        private Quaternion headRot;
+        private Quaternion leftHandRot;
+        private Quaternion rightHandRot;
+
+        protected IKSystem2 AddVRIK(GameObject avatar)
+        {
+            headRot = GetBoneRestRotation(HumanBodyBones.Head);
+            leftHandRot = GetBoneRestRotation(HumanBodyBones.LeftHand);
+            rightHandRot = GetBoneRestRotation(HumanBodyBones.RightHand);
+            IKSystem2 v = avatar.AddComponent<IKSystem2>();
+            v.humanoid = MainAnimator;
+            v.minStepHeight = 0.1f;
+            v.minStepDistance = 0.1f;
+            v.footMoveSpeed = 5f;
+            v.timeoutTime = 0.25f;
+            v.footAnimCurve = new AnimationCurve();
+            v.footAnimCurve.AddKey(0f, 0f);
+            v.footAnimCurve.AddKey(0.5f, 1f);
+            v.footAnimCurve.AddKey(1f, 0f);
+            v.Init();
+            v.maxStepDistance = v.footDistance;
+            // v.handIk = false;
+            v.hipIk = false;
+            return v;
+        }
+
+        protected IKSystem AddVRIK2(GameObject avatar)
+        {
+            IKSystem v = avatar.AddComponent<IKSystem>();
+            v.humanoid = MainAnimator;
+            v.minStepHeight = 0.1f;
+            v.stepDistance = 0.1f;
+            v.footMoveSpeed = 5f;
+            // v.timeoutTime = 0.25f;
+            // v.footAnimCurve = new AnimationCurve();
+            // v.footAnimCurve.AddKey(0f, 0f);
+            // v.footAnimCurve.AddKey(0.5f, 1f);
+            // v.footAnimCurve.AddKey(1f, 0f);
+            v.Init();
+            // v.maxStepDistance = v.footDistance;
+            v.handIk = false;
+            // v.hipIk = false;
+            return v;
+        }
+
+        protected Object CalibrateVRIK(Transform cameraTransform, Transform LeftHandReference, Transform RightHandReference)
+        {
+            var headPose = new GameObject("HeadPose").transform;
+            headPose.SetParent(cameraTransform, false);
+            headPose.localRotation = headRot;
+            vrik.headData.ik.Target = headPose;
+
+            var leftHandPose = new GameObject("LeftPose").transform;
+            leftHandPose.SetParent(LeftHandReference, false);
+            leftHandPose.localRotation = leftHandRot;
+            vrik.leftHandData.ik.Target = leftHandPose;
+
+            var rightHandPose = new GameObject("RightPose").transform;
+            rightHandPose.SetParent(RightHandReference, false);
+            rightHandPose.localRotation = rightHandRot;
+            vrik.rightHandData.ik.Target = rightHandPose;
+
+            vrik.hipTarget = null;
+
+            return null;
+        }
+
+        protected Object CalibrateVRIK(Transform cameraTransform, Transform bodyTracker,
+            Transform LeftHandReference, Transform RightHandReference, Transform leftFootTracker,
+            Transform rightFootTracker)
+        {
+            var headPose = new GameObject("HeadPose").transform;
+            headPose.SetParent(cameraTransform, false);
+            headPose.localRotation = headRot;
+            vrik.headData.ik.Target = headPose;
+
+            var leftHandPose = new GameObject("LeftPose").transform;
+            leftHandPose.SetParent(LeftHandReference, false);
+            leftHandPose.localRotation = leftHandRot;
+            vrik.leftHandData.ik.Target = leftHandPose;
+
+            var rightHandPose = new GameObject("RightPose").transform;
+            rightHandPose.SetParent(RightHandReference, false);
+            rightHandPose.localRotation = rightHandRot;
+            vrik.rightHandData.ik.Target = rightHandPose;
+
+            vrik.hipTarget = bodyTracker;
+
+            // TODO: is extra foot calibration needed?
+            vrik.leftFootData.ik.Target = leftFootTracker;
+            vrik.rightFootData.ik.Target = rightFootTracker;
+            return null;
+        }
+
+        protected void UpdateVRIK(bool fbt, bool isMoving, float scale)
+        {
+            vrik.footIk = !isMoving;
+            vrik.moveFeet = !isMoving && !fbt;
+        }
+
 #endif
         
         // Here's an idea Unity.. EXPOSE THE PARAMETERS??
@@ -912,6 +977,13 @@ namespace Hypernex.Game.Avatar
             TwistSolver leftSolver = new TwistSolver { transform = leftLowerArm, children = new []{leftHand} };
             TwistSolver rightSolver = new TwistSolver { transform = rightLowerArm, children = new []{rightHand} };
             twistRelaxer.twistSolvers = new[] { leftSolver, rightSolver };
+        }
+#else
+        protected void RelaxWrists(Transform leftLowerArm, Transform rightLowerArm, Transform leftHand,
+            Transform rightHand)
+        {
+            if (leftLowerArm == null || rightLowerArm == null || leftHand == null || rightHand == null)
+                return;
         }
 #endif
         
